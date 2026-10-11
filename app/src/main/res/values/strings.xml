@@ -142,6 +142,44 @@
     <string name="screen_kanban">Kanban</string>
     <string name="screen_achievements">Achievements</string>
     <string name="screen_history">History</string>
+    <string name="screen_projects">Projects</string>
+    <string name="projects_action_new">New project</string>
+    <string name="projects_action_create">Create</string>
+    <string name="projects_action_add">Add</string>
+    <string name="projects_action_add_folder">Add folder</string>
+    <string name="projects_action_archive">Archive</string>
+    <string name="projects_action_restore">Restore</string>
+    <string name="projects_action_create_from_repo">Create project</string>
+    <string name="projects_edit_title">Edit project</string>
+    <string name="projects_field_name">Name</string>
+    <string name="projects_field_description">Description</string>
+    <string name="projects_field_folder">Folder path</string>
+    <string name="projects_field_folder_hint">Absolute path on the gateway host, e.g. /home/me/code/app</string>
+    <string name="projects_field_color">Color</string>
+    <string name="projects_color_none">No color</string>
+    <string name="projects_error_name_required">Name is required</string>
+    <string name="projects_search_placeholder">Search projects or folders…</string>
+    <string name="projects_filter_active">Active</string>
+    <string name="projects_filter_archived">Archived (%1$d)</string>
+    <string name="projects_badge_archived">Archived</string>
+    <string name="projects_no_folders">No folders: new chats cannot start here until you add one.</string>
+    <string name="projects_folder_primary">Primary folder</string>
+    <string name="projects_folder_make_primary">Make primary folder</string>
+    <string name="projects_folder_remove">Remove folder %1$s</string>
+    <string name="projects_empty_title">No projects yet</string>
+    <string name="projects_empty_archived">No archived projects</string>
+    <string name="projects_empty_subtitle">Group chats by codebase and start new chats inside a folder.</string>
+    <string name="projects_suggestions_title">From your sessions</string>
+    <string name="projects_delete_title">Delete %1$s?</string>
+    <string name="projects_delete_message">The project and its folder list are removed. Chats are kept and fall back to their folder name in History.</string>
+    <plurals name="projects_folder_count">
+        <item quantity="one">%d folder</item>
+        <item quantity="other">%d folders</item>
+    </plurals>
+    <plurals name="projects_session_count">
+        <item quantity="one">%d session</item>
+        <item quantity="other">%d sessions</item>
+    </plurals>
     <string name="screen_providers">Providers</string>
     <string name="screen_analytics">Analytics</string>
     <string name="screen_billing">Billing</string>
@@ -903,6 +941,13 @@
     <string name="sessions_hidden_badge">Hidden</string>
     <string name="sessions_all_hidden_desc">All sessions are currently hidden. Tap below to show hidden sessions.</string>
     <string name="sessions_pinned_indicator">Pinned</string>
+    <string name="sessions_project_none">No project</string>
+    <string name="chat_project_default">Default workspace</string>
+    <string name="chat_project_picker_title">Start in project</string>
+    <string name="sessions_project_new_chat">New chat in %1$s</string>
+    <string name="sessions_group_by_project">Group by project</string>
+    <string name="sessions_project_group_collapse">Collapse %1$s</string>
+    <string name="sessions_project_group_expand">Expand %1$s</string>
     <string name="sessions_fork_indicator">Forked session</string>
     <string name="sessions_live_status_running">Running</string>
     <string name="sessions_live_status_waiting">Needs input</string>
@@ -1863,4 +1908,8 @@
     <string name="mtls_prompt_verification_failed">Verification failed. The certificate has not been saved.</string>
     <string name="mtls_prompt_error_details">Error details</string>
     <string name="mtls_prompt_verification_details">Check the selected certificate and server connection, then try again. If the problem persists, review this server’s certificate configuration in Connections.</string>
+    <string name="trust_user_cas_title">Trust user-installed CAs</string>
+    <string name="trust_user_cas_description">Trust system CAs and any CA installed in Android’s user certificate store for all connections. Any user-installed CA can authenticate servers for this app. Certificate and hostname checks remain enabled. Off by default.</string>
+    <string name="trust_user_cas_save_failed">Could not save the trust setting. Please try again.</string>
+    <string name="trust_user_cas_restart_required">Restart the app process to apply this change.</string>
 </resources>
