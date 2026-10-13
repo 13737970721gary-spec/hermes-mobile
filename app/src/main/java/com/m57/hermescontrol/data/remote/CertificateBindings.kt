@@ -71,6 +71,15 @@ internal class CertificateBindings(
         }
     }
 
+    /** Keep an origin's selected CA stable for the duration of a handshake validation. */
+    @Synchronized
+    fun checkedBinding(
+        origin: CertificateOrigin,
+        check: (Boolean, String?) -> Unit,
+    ) {
+        check(origin.storageKey in bindings.value, bindings.value[origin.storageKey])
+    }
+
     private companion object {
         const val GLOBAL_CACHE_VERSION = "*"
     }
@@ -90,3 +99,16 @@ internal class CertificateBindings(
         }
     }
 }
+
+internal fun certificateCacheVersions(
+    values: Map<String, *>,
+    prefix: String,
+): Map<String, String> =
+    values
+        .mapNotNull { (key, value) ->
+            if (key.startsWith(prefix) && value is String) {
+                key.removePrefix(prefix) to value
+            } else {
+                null
+            }
+        }.toMap()
