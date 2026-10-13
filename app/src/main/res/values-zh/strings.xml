@@ -57,6 +57,8 @@
     <string name="press_back_again_to_exit">再次返回以退出应用</string>
     <string name="nav_drawer_title">Hermes</string>
     <string name="nav_drawer_subtitle">AI Agent 控制台</string>
+    <string name="nav_drawer_support">支持本项目</string>
+    <string name="whats_new_title">%1$s 更新内容</string>
     <string name="nav_drawer_section_converse">对话</string>
     <string name="nav_drawer_section_automate">自动化</string>
     <string name="nav_drawer_section_configure">配置</string>
@@ -283,6 +285,7 @@
     <string name="language_korean">한국어</string>
     <string name="language_italian">Italiano</string>
     <string name="language_spanish">Español</string>
+    <string name="language_german">Deutsch</string>
     <string name="connect_selected_profile">配置：%1$s</string>
     <string name="connect_action_select_profile">选择已保存配置</string>
     <string name="connect_health_title">后端健康状态</string>

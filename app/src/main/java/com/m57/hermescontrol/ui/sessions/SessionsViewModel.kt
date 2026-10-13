@@ -17,6 +17,7 @@ import com.m57.hermescontrol.data.model.SessionSearchResult
 import com.m57.hermescontrol.data.remote.ApiClient
 import com.m57.hermescontrol.data.remote.NetworkResult
 import com.m57.hermescontrol.data.remote.safeApiCall
+import com.m57.hermescontrol.data.remote.safeApiRead
 import com.m57.hermescontrol.data.session.ProfileSwitchCoordinator
 import com.m57.hermescontrol.data.ws.ChangeEventHub
 import com.m57.hermescontrol.data.ws.ChangeEvents
@@ -233,7 +234,7 @@ class SessionsViewModel(
                 val requestScope = runCatching { AuthManager.currentDataScope() }.getOrNull()
                 when (
                     val result =
-                        safeApiCall {
+                        safeApiRead {
                             ApiClient.hermesApi.getSessions(
                                 limit = PAGE_SIZE,
                                 offset = 0,
@@ -364,7 +365,7 @@ class SessionsViewModel(
                     missing.mapNotNull { pid ->
                         resolvedParentCache[pid] ?: when (
                             val r =
-                                safeApiCall { ApiClient.hermesApi.getSessionInfo(pid) }
+                                safeApiRead { ApiClient.hermesApi.getSessionInfo(pid) }
                         ) {
                             is NetworkResult.Success -> r.data?.also { resolvedParentCache[pid] = it }
                             is NetworkResult.Failure -> null
@@ -484,7 +485,7 @@ class SessionsViewModel(
             safeLaunchLoad(
                 currentJob = loadJob,
                 apiCall = {
-                    safeApiCall {
+                    safeApiRead {
                         ApiClient.hermesApi.getSessions(
                             limit = PAGE_SIZE,
                             offset = 0,
@@ -567,7 +568,7 @@ class SessionsViewModel(
         pageJob =
             viewModelScope.launch {
                 val result =
-                    safeApiCall {
+                    safeApiRead {
                         ApiClient.hermesApi.getSessions(
                             limit = PAGE_SIZE,
                             offset = offset,
@@ -682,7 +683,7 @@ class SessionsViewModel(
         offset: Int,
     ) {
         val result =
-            safeApiCall {
+            safeApiRead {
                 ApiClient.hermesApi.searchSessions(
                     q = query,
                     profile = null,
@@ -741,7 +742,7 @@ class SessionsViewModel(
             safeLaunchLoad(
                 currentJob = statsJob,
                 apiCall = {
-                    safeApiCall { ApiClient.hermesApi.getSessionStats() }
+                    safeApiRead { ApiClient.hermesApi.getSessionStats() }
                 },
                 onStart = { _uiState.update { it.copy(isLoadingStats = true, statsError = null) } },
                 onSuccess = { data ->
@@ -1077,23 +1078,20 @@ class SessionsViewModel(
                 }
             when (result) {
                 is NetworkResult.Success -> {
+                    // Sessions guarded by an active write survive; only the rest are gone.
+                    val skipped = result.data.skippedActive.toSet()
+                    val removedIds = ids.filterNot { it in skipped }.toSet()
                     val lastOpened = AuthManager.getLastOpenedSessionId()
-                    if (lastOpened != null && ids.contains(lastOpened)) {
+                    if (lastOpened != null && lastOpened in removedIds) {
                         AuthManager.clearLastOpenedSessionId()
                     }
-                    val deletedCount = result.data.deleted
-                    val toastMsg =
-                        if (deletedCount > 0) {
-                            "$deletedCount session(s) deleted"
-                        } else {
-                            "No sessions were deleted"
-                        }
+                    val toastMsg = bulkDeleteToast(result.data.deleted, skipped.size)
                     _uiState.update {
                         it.copy(
                             isDeletingBulk = false,
                             isSelecting = false,
                             selectedIds = emptySet(),
-                            searchResults = it.searchResults.filter { hit -> hit.session_id !in ids },
+                            searchResults = it.searchResults.filter { hit -> hit.session_id !in removedIds },
                             toastMessage = toastMsg,
                         )
                     }
@@ -1111,6 +1109,14 @@ class SessionsViewModel(
                 }
             }
         }
+    }
+
+    private fun bulkDeleteToast(
+        deleted: Int,
+        skipped: Int,
+    ): String {
+        val deletedText = if (deleted > 0) "$deleted session(s) deleted" else "No sessions were deleted"
+        return if (skipped > 0) "$deletedText, $skipped skipped (active)" else deletedText
     }
 
     // ── Prune ────────────────────────────────────────────────────────────
@@ -1175,7 +1181,7 @@ class SessionsViewModel(
         viewModelScope.launch {
             val result =
                 runCatching {
-                    safeApiCall { ApiClient.hermesApi.getEmptySessionCount() }
+                    safeApiRead { ApiClient.hermesApi.getEmptySessionCount() }
                 }.getOrNull()
             val currentScope = runCatching { AuthManager.currentDataScope() }.getOrNull()
             if (requestGeneration != generation || currentScope != requestScope) return@launch
