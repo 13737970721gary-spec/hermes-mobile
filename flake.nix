@@ -6,13 +6,15 @@
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = {
-    self,
-    nixpkgs,
-    flake-utils,
-  }:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      flake-utils,
+    }:
     flake-utils.lib.eachDefaultSystem (
-      system: let
+      system:
+      let
         pkgs = import nixpkgs {
           inherit system;
           config = {
@@ -29,19 +31,19 @@
             platformToolsVersion = "37.0.1";
 
             # Build tools
-            buildToolsVersions = [buildToolsVersion];
+            buildToolsVersions = [ buildToolsVersion ];
 
             # Target platforms: 37.0 provides both the SDK platform for
             # compileSdk 37 AND the published android-37.0 system image the
             # emulator needs to boot an AVD (no 37.1 image exists yet).
             # compileSdk/targetSdk in app/build.gradle.kts stay 37.
-            platformVersions = ["37.0"];
+            platformVersions = [ "37.0" ];
 
             # Emulator + system images for local AVD testing
-            includeEmulator = true;
-            includeSystemImages = true;
-            systemImageTypes = ["google_apis"];
-            abiVersions = ["x86_64"];
+            includeEmulator = false;
+            includeSystemImages = false;
+            systemImageTypes = [ "google_apis" ];
+            abiVersions = [ "x86_64" ];
 
             # NDK (not needed for this project, but handy)
             includeNDK = false;
@@ -58,7 +60,8 @@
               "mips-android-sysimage-license"
             ];
           }).androidsdk;
-      in {
+      in
+      {
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
             # Java 21 (required for AGP 9.x / Gradle 9.x)
@@ -80,49 +83,7 @@
           # shell-expanded, so "$PWD/..." gave every checkout and worktree its
           # own cache and daemon pool, and idle daemons piled up in RAM.
 
-          shellHook = ''
-            echo " HermesControl Android dev shell"
-            echo "   Java:         $(java -version 2>&1 | head -1)"
-            echo "   Gradle:       $(gradle --version 2>/dev/null | grep -m1 Gradle || echo "gradle $(gradle --version 2>&1 | head -1)")"
-            echo "   ktlint:       $(ktlint --version 2>/dev/null || echo "not found")"
-            echo "   ANDROID_HOME: $ANDROID_HOME"
-            echo ""
-
-            # Ensure Android CLI tools and local user binaries are on PATH
-            export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$HOME/.local/bin:$PATH"
-
-            # Enable host keyboard input for the project's existing AVD.
-            hermesAvdConfig="''${ANDROID_AVD_HOME:-''${ANDROID_USER_HOME:-$HOME/.android}/avd}/hermes_dev.avd/config.ini"
-            if [ -f "$hermesAvdConfig" ]; then
-              if ${pkgs.gnugrep}/bin/grep -q '^hw\.keyboard[[:space:]]*=' "$hermesAvdConfig"; then
-                ${pkgs.gnused}/bin/sed -i 's/^hw\.keyboard[[:space:]]*=.*/hw.keyboard=yes/' "$hermesAvdConfig"
-              else
-                printf '\nhw.keyboard=yes\n' >> "$hermesAvdConfig"
-              fi
-            fi
-            unset hermesAvdConfig
-
-            # ADB Screen Resolution Aliases
-            alias avd-phone='adb shell wm size 1440x3120 && adb shell wm density 500'
-            alias avd-phone-fhd='adb shell wm size 1080x2400 && adb shell wm density 420'
-
-            alias avd-tablet='adb shell wm size 1600x2560 && adb shell wm density 320'
-            alias avd-tablet-land='adb shell wm size 2560x1600 && adb shell wm density 320'
-
-            alias avd-reset='adb shell wm size reset && adb shell wm density reset'
-
-            # HermesControl app logcat (filtered to the app process only)
-            alias logcat-app='adb logcat --pid=$(adb shell pidof com.m57.hermescontrol)'
-
-            echo "Display Presets Loaded:"
-            echo "  avd-phone        -> 1440x3120 (500 DPI) [QHD+ Flagship]"
-            echo "  avd-phone-fhd    -> 1080x2400 (420 DPI) [FHD+ Flagship]"
-            echo "  avd-tablet       -> 1600x2560 (320 DPI) [Portrait Tablet]"
-            echo "  avd-tablet-land  -> 2560x1600 (320 DPI) [Landscape Tablet]"
-            echo "  avd-reset        -> Reset size & density back to AVD defaults"
-            echo "  logcat-app       -> Logcat for the HermesControl app process only"
-            echo ""
-          '';
+          # shellHook = "";
         };
       }
     );
