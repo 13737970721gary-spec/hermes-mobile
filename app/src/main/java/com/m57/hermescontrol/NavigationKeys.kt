@@ -45,13 +45,15 @@ import kotlinx.serialization.Serializable
 
 @Serializable data object ConfigScreen : NavKey
 
-@Serializable data object McpServersScreen : NavKey
+@Serializable data object ConnectorsScreen : NavKey
 
 @Serializable data object MemoryScreen : NavKey
 
 @Serializable data object WebhooksScreen : NavKey
 
 @Serializable data object ModelScreen : NavKey
+
+@Serializable data object LocalModelsScreen : NavKey
 
 @Serializable data object PairingScreen : NavKey
 
@@ -79,8 +81,6 @@ import kotlinx.serialization.Serializable
 @Serializable data object BillingScreen : NavKey
 
 @Serializable data object FilesScreen : NavKey
-
-@Serializable data object AccountConnectorsScreen : NavKey
 
 // ── Settings drill-down sub-pages ──────────────────────────────────────
 

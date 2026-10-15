@@ -68,6 +68,7 @@ import com.m57.hermescontrol.data.ws.contract.SessionIdParams
 import com.m57.hermescontrol.data.ws.contract.SessionInterruptParams
 import com.m57.hermescontrol.data.ws.contract.SessionListParams
 import com.m57.hermescontrol.data.ws.contract.SessionResumeParams
+import com.m57.hermescontrol.data.ws.contract.SessionWorkspaceMoveParams
 import com.m57.hermescontrol.data.ws.contract.SlashExecParams
 import com.m57.hermescontrol.data.ws.contract.TypedRpcSender
 import com.m57.hermescontrol.data.ws.toAny
@@ -253,6 +254,8 @@ data class ChatUiState(
     val modelPickerPinned: List<PinnedModel> = emptyList(),
     val modelPickerLoading: Boolean = false,
     val modelSwitchConfirmMessage: String? = null,
+    // #1588: multi-turn /undo N waits here for confirmation before command.dispatch.
+    val undoConfirmCount: Int? = null,
     // Current session's active model label (provider/model), shown in the chip
     val currentSessionModel: String? = null,
     // Per-model reasoning capabilities for the current session's model
@@ -316,6 +319,10 @@ data class ChatUiState(
     val stagedProject: ProjectInfo? = null,
     /** Projects a new chat can start in, from `projects.list`; empty hides the picker. */
     val startableProjects: List<ProjectInfo> = emptyList(),
+    /** Id of the named project owning the live session's cwd (`session.info.project`); null = default workspace. */
+    val sessionProjectId: String? = null,
+    /** True while `session.workspace.move` is in flight. */
+    val isMovingProject: Boolean = false,
     val resumeError: String? = null,
     val isResumeRetrying: Boolean = false,
     /** Text staged to prefill the composer (e.g. from /undo). */
@@ -1758,6 +1765,10 @@ class ChatViewModel(
         // (model switch, reasoning level, etc.)
         if (info != null) {
             (info["running"] as? Boolean)?.let { mainTurnBusy = it }
+            if (info.containsKey("cwd")) {
+                val projectId = (info["project"] as? Map<*, *>)?.get("id") as? String
+                _uiState.update { it.copy(sessionProjectId = projectId) }
+            }
             val model = info["model"] as? String
             val provider = info["provider"] as? String
             val reasoningEffort = info["reasoning_effort"] as? String
@@ -4311,6 +4322,10 @@ class ChatViewModel(
                 handleQueueCommand(command, userMsg)
             }
 
+            is SlashResult.QueueManage -> {
+                addAssistantMessage("/queue ${result.verb} is not supported on mobile; use /queue <prompt> to add one")
+            }
+
             is SlashResult.SideQuestion -> {
                 handleSideQuestionCommand(result.question)
             }
@@ -4777,6 +4792,30 @@ class ChatViewModel(
     }
 
     private fun handleUndoCommand(count: String) {
+        if (runtimeSessionId == null) {
+            addAssistantMessage("No active session to undo.")
+            return
+        }
+        // #1588: rewinding more than one turn archives history, so ask first.
+        val turns = count.substringBefore(' ').toIntOrNull()
+        if (turns != null && turns > 1) {
+            _uiState.update { it.copy(undoConfirmCount = turns) }
+            return
+        }
+        performUndo(count)
+    }
+
+    fun confirmUndo() {
+        val turns = _uiState.value.undoConfirmCount ?: return
+        _uiState.update { it.copy(undoConfirmCount = null) }
+        performUndo(turns.toString())
+    }
+
+    fun dismissUndoConfirm() {
+        _uiState.update { it.copy(undoConfirmCount = null) }
+    }
+
+    private fun performUndo(count: String) {
         val sessionId = runtimeSessionId
         if (sessionId == null) {
             addAssistantMessage("No active session to undo.")
@@ -5179,6 +5218,47 @@ class ChatViewModel(
                     onSent = { id -> trackRequest(id, WsMethods.SESSION_LIST) },
                 )
             }
+    }
+
+    /**
+     * Re-homes the open chat into [project]'s folder via `session.workspace.move` (the stored session id is the
+     * gateway's `session_key`). Refused while a turn runs: the agent's cwd would change under a live tool call.
+     */
+    fun moveSessionToProject(project: ProjectInfo) {
+        val state = _uiState.value
+        val storageId = state.currentSessionId ?: return
+        val cwd = project.launchCwd ?: return
+        if (state.isMovingProject || state.sessionProjectId == project.id) return
+        val app = getApplication<Application>()
+        if (state.isMainTurnBusy || mainTurnBusy) {
+            _uiState.update { it.copy(errorMessage = app.getString(R.string.chat_project_move_busy)) }
+            return
+        }
+        val currentGen = scopeGeneration
+        _uiState.update { it.copy(isMovingProject = true) }
+        viewModelScope.launch(ioDispatcher) {
+            try {
+                wsClient.call(
+                    RpcMethods.SESSION_WORKSPACE_MOVE,
+                    SessionWorkspaceMoveParams(sessionKey = storageId, cwd = cwd),
+                    suppressErrorEvent = true,
+                )
+                if (scopeGeneration == currentGen && _uiState.value.currentSessionId == storageId) {
+                    _uiState.update { it.copy(sessionProjectId = project.id, isMovingProject = false) }
+                }
+                coalescedSilentLoadSessions()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val reason = e.message?.takeIf { it.isNotBlank() } ?: e.toString()
+                _uiState.update {
+                    it.copy(
+                        isMovingProject = false,
+                        errorMessage = app.getString(R.string.chat_project_move_failed, reason),
+                    )
+                }
+            }
+        }
     }
 
     /**
@@ -6192,6 +6272,7 @@ class ChatViewModel(
                 showModelPicker = false,
                 modelPickerLoading = false,
                 modelSwitchConfirmMessage = null,
+                undoConfirmCount = null,
                 currentSessionModel = null,
                 currentModelCapabilities = null,
                 reasoningLevel = null,
@@ -6221,6 +6302,8 @@ class ChatViewModel(
                 isResumeRetrying = false,
                 pendingPrefillText = null,
                 stagedProject = null,
+                sessionProjectId = null,
+                isMovingProject = false,
             )
         }
         publishPendingSends()

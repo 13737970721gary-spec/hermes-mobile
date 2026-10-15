@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.HistoryEdu
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Power
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Schedule
@@ -40,13 +41,14 @@ import com.m57.hermescontrol.ui.bots.BotsScreen as BotsScreenContent
 import com.m57.hermescontrol.ui.channels.ChannelsScreen as ChannelsScreenContent
 import com.m57.hermescontrol.ui.chat.ChatScreen as ChatScreenContent
 import com.m57.hermescontrol.ui.config.ConfigScreen as ConfigScreenContent
+import com.m57.hermescontrol.ui.connectors.ConnectorsScreen as ConnectorsScreenContent
 import com.m57.hermescontrol.ui.cron.CronJobsScreen as CronJobsScreenContent
 import com.m57.hermescontrol.ui.files.FilesScreen as FilesScreenContent
 import com.m57.hermescontrol.ui.gateway.GatewayScreen as GatewayScreenContent
 import com.m57.hermescontrol.ui.kanban.KanbanScreen as KanbanScreenContent
 import com.m57.hermescontrol.ui.keys.KeysScreen as KeysScreenContent
+import com.m57.hermescontrol.ui.localmodels.LocalModelsScreen as LocalModelsScreenContent
 import com.m57.hermescontrol.ui.logs.LogsScreen as LogsScreenContent
-import com.m57.hermescontrol.ui.mcp.McpServersScreen as McpServersScreenContent
 import com.m57.hermescontrol.ui.memory.MemoryScreen as MemoryScreenContent
 import com.m57.hermescontrol.ui.model.ModelScreen as ModelScreenContent
 import com.m57.hermescontrol.ui.pairing.PairingScreen as PairingScreenContent
@@ -154,11 +156,11 @@ object ScreenRegistry {
                 DrawerSection.CONFIGURE,
             ) { sessionId, openDrawer -> ConfigScreenContent(onOpenDrawer = openDrawer) },
             ScreenDefinition(
-                McpServersScreen,
-                R.string.screen_mcp_servers,
+                ConnectorsScreen,
+                R.string.screen_account_connectors,
                 Icons.Filled.Power,
                 DrawerSection.CONFIGURE,
-            ) { sessionId, openDrawer -> McpServersScreenContent(onOpenDrawer = openDrawer) },
+            ) { sessionId, openDrawer -> ConnectorsScreenContent(onOpenDrawer = openDrawer) },
             ScreenDefinition(
                 MemoryScreen,
                 R.string.screen_memory,
@@ -171,6 +173,12 @@ object ScreenRegistry {
                 Icons.Filled.Psychology,
                 DrawerSection.CONFIGURE,
             ) { sessionId, openDrawer -> ModelScreenContent(onOpenDrawer = openDrawer) },
+            ScreenDefinition(
+                LocalModelsScreen,
+                R.string.screen_local_models,
+                Icons.Filled.Memory,
+                DrawerSection.CONFIGURE,
+            ) { sessionId, openDrawer -> LocalModelsScreenContent(onOpenDrawer = openDrawer) },
             ScreenDefinition(
                 PairingScreen,
                 R.string.screen_pairing,

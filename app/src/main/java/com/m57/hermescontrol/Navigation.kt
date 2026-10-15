@@ -38,6 +38,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -78,7 +79,6 @@ import com.m57.hermescontrol.ui.settings.components.KO_FI_URL
 import com.m57.hermescontrol.ui.toolsets.ToolsetDetailScreen
 import kotlinx.coroutines.launch
 import com.m57.hermescontrol.ui.authlogin.AuthLoginScreen as AuthLoginScreenContent
-import com.m57.hermescontrol.ui.connectors.AccountConnectorsScreen as AccountConnectorsScreenContent
 import com.m57.hermescontrol.ui.landing.LandingScreen as LandingScreenContent
 
 private fun appEntryProvider(
@@ -129,9 +129,6 @@ private fun appEntryProvider(
             onLogout = { /* handled by caller via goBack fallback */ },
             viewModel = viewModel { SettingsViewModel() },
         )
-    }
-    entry<AccountConnectorsScreen> {
-        AccountConnectorsScreenContent(onBack = { NavigationController.goBack() })
     }
     entry<SettingsAppearance> {
         SettingsAppearancePage(
@@ -212,6 +209,15 @@ fun MainNavigation(sessionId: String? = null) {
 
     val backStack = remember(startScreen) { NavBackStack(startScreen) }
     NavigationController.backStack = backStack
+
+    val pendingKanban = NavigationController.pendingKanbanNavigation
+    LaunchedEffect(pendingKanban, hasToken) {
+        if (hasToken && pendingKanban != null) {
+            NavigationController.navigateTo(KanbanScreen)
+            NavigationController.navigateTo(KanbanTaskDetailKey(pendingKanban.boardSlug, pendingKanban.taskId))
+            NavigationController.consumePendingKanbanNavigation()
+        }
+    }
 
     val currentScreen = backStack.lastOrNull() ?: startScreen
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
