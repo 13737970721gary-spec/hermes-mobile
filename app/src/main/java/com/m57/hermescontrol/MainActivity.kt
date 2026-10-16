@@ -45,6 +45,7 @@ import com.m57.hermescontrol.data.update.WhatsNewNotice
 import com.m57.hermescontrol.data.ws.HermesWsClient
 import com.m57.hermescontrol.notification.NotificationHelper
 import com.m57.hermescontrol.notification.NotificationReplyReceiver
+import com.m57.hermescontrol.share.ShareInbox
 import com.m57.hermescontrol.theme.HermesControlTheme
 import com.m57.hermescontrol.ui.authlogin.AuthLoginScreen
 import com.m57.hermescontrol.ui.common.ErrorState
@@ -101,6 +102,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         consumeNotificationIntent(intent)
+        // A recreated activity (rotation, process restore) still holds the original intent.
+        if (savedInstanceState == null) consumeShareIntent(intent)
 
         lifecycleScope.launch {
             AuthManager.initializationState.first { it == AuthManager.InitializationState.Ready }
@@ -263,6 +266,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         consumeNotificationIntent(intent)
+        consumeShareIntent(intent)
     }
 
     override fun onResume() {
@@ -290,6 +294,18 @@ class MainActivity : ComponentActivity() {
         // idle connection when the user really leaves the app or locks the phone.
         if (!isChangingConfigurations) NotificationHelper.setAppForeground(this, false)
         super.onStop()
+    }
+
+    /**
+     * #1601: stage shared text/files for the chat composer. The payload is untrusted and is only
+     * ever parked for review; ShareInbox never sends it. Re-delivery from recents is ignored.
+     */
+    private fun consumeShareIntent(intent: Intent?) {
+        if (intent == null || intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
+        if (intent.action != Intent.ACTION_SEND && intent.action != Intent.ACTION_SEND_MULTIPLE) return
+        ShareInbox.ingest(this, intent)
+        // Parked once: a later recreate or setIntent replay must not stage it a second time.
+        intent.action = null
     }
 
     private fun consumeNotificationIntent(intent: Intent?) {

@@ -18,6 +18,7 @@ import com.m57.hermescontrol.data.remote.OkHttpProvider
 import com.m57.hermescontrol.data.remote.ServerCaRestrictions
 import com.m57.hermescontrol.data.remote.ServerTrust
 import com.m57.hermescontrol.notification.TurnCorrelationTracker
+import com.m57.hermescontrol.share.SHARE_INBOX_DIRECTORY
 import com.m57.hermescontrol.ui.analytics.AnalyticsPreloader
 import com.m57.hermescontrol.ui.chat.cleanStalePastedImages
 import kotlinx.coroutines.CoroutineScope
@@ -36,6 +37,7 @@ class HermesControlApp :
         val startupTimeMs = System.currentTimeMillis()
         appScope.launch(Dispatchers.IO) {
             cleanStalePastedImages(cacheDir, startupTimeMs)
+            cleanStalePastedImages(cacheDir, startupTimeMs, SHARE_INBOX_DIRECTORY)
         }
         ServerTrust.initialize(this)
         ServerCaRestrictions.initialize(this)
