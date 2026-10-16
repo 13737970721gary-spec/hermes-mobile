@@ -23,6 +23,13 @@ internal fun TextFieldState.restoreRejectedComposerDraft(rejectedText: String) {
     }
 }
 
+/** Shared-in text goes after whatever the user already typed; an existing draft is never replaced (#1601). */
+internal fun TextFieldState.appendSharedComposerDraft(sharedText: String) {
+    if (sharedText.isBlank()) return
+    val current = text.toString()
+    replaceComposerDraft(if (current.isBlank()) sharedText else "$current\n\n$sharedText")
+}
+
 /** Speech results arrive asynchronously: append to the draft as it exists at result time. */
 internal fun TextFieldState.appendSpeechComposerDraft(spokenText: String) {
     if (spokenText.isBlank()) return

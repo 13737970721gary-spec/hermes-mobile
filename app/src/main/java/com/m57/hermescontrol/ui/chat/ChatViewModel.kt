@@ -76,6 +76,8 @@ import com.m57.hermescontrol.data.ws.toJsonElement
 import com.m57.hermescontrol.notification.ReplyNotificationTracker
 import com.m57.hermescontrol.notification.captureTurnBoundary
 import com.m57.hermescontrol.notification.correlationScopeId
+import com.m57.hermescontrol.share.IncomingShare
+import com.m57.hermescontrol.share.describeFailedShares
 import com.m57.hermescontrol.ui.chat.fullbleed.TranscriptUiState
 import com.m57.hermescontrol.ui.chat.tool.ToolViewCache
 import com.m57.hermescontrol.ui.common.ActionProgressController
@@ -327,6 +329,8 @@ data class ChatUiState(
     val isResumeRetrying: Boolean = false,
     /** Text staged to prefill the composer (e.g. from /undo). */
     val pendingPrefillText: String? = null,
+    /** Shared-in text (#1601), appended to the live draft by the screen; never replaces it. */
+    val pendingSharedText: String? = null,
 ) {
     /** Convenience — derived from [connectionStatus]. */
     val isConnected: Boolean get() = connectionStatus == ConnectionStatus.CONNECTED
@@ -648,6 +652,9 @@ class ChatViewModel(
     )
 
     private var pendingInitialPrompt: PendingPrompt? = null
+
+    /** Shared content waiting for the new session it was routed to (#1601); survives session resets. */
+    private var stagedShare: IncomingShare? = null
 
     /**
      * Whether the gateway has confirmed a persisted DB row for the current
@@ -2144,6 +2151,10 @@ class ChatViewModel(
                 ActiveSessionHolder.set(runtimeId, storageId)
                 _streamingState.update { StreamingState() }
                 addSystemMessage("Session created", persist = true)
+                stagedShare?.let { share ->
+                    stagedShare = null
+                    applySharedContent(share)
+                }
                 loadSessions()
                 fetchContextUsage()
 
@@ -5031,6 +5042,42 @@ class ChatViewModel(
 
     fun consumePendingPrefill() {
         _uiState.update { it.copy(pendingPrefillText = null) }
+    }
+
+    fun consumePendingSharedText() {
+        _uiState.update { it.copy(pendingSharedText = null) }
+    }
+
+    /**
+     * Stages content shared into the app (#1601) in a new chat, never sending it. A chat that
+     * has no conversation yet is reused. The session reset wipes pending attachments, so any the
+     * user already queued ride along and are restored with the share.
+     */
+    internal fun stageSharedContent(share: IncomingShare) {
+        val state = _uiState.value
+        if (!state.hasConversation && state.isSessionReady && !_timelineState.value.isHistorical) {
+            applySharedContent(share)
+            return
+        }
+        val carried = share.copy(attachments = state.pendingAttachments + share.attachments)
+        stagedShare = stagedShare?.plus(carried) ?: carried
+        createNewSession(setLoading = false)
+    }
+
+    private fun applySharedContent(share: IncomingShare) {
+        val failure =
+            share.failed.takeIf { it.isNotEmpty() }?.let {
+                getApplication<Application>().getString(R.string.share_attach_failed, describeFailedShares(it))
+            }
+        _uiState.update { state ->
+            state.copy(
+                pendingAttachments = (state.pendingAttachments + share.attachments).distinctBy { it.uri },
+                pendingSharedText =
+                    share.text?.let { text -> state.pendingSharedText?.let { "$it\n\n$text" } ?: text }
+                        ?: state.pendingSharedText,
+                errorMessage = failure ?: state.errorMessage,
+            )
+        }
     }
 
     // ── Session management ───────────────────────────────────────────────

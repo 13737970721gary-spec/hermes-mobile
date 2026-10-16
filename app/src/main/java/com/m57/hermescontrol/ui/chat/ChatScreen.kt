@@ -93,6 +93,7 @@ import com.m57.hermescontrol.data.session.ActiveSessionHolder
 import com.m57.hermescontrol.data.ws.ConnectionStatus
 import com.m57.hermescontrol.data.ws.HermesWsClient
 import com.m57.hermescontrol.notification.NotificationHelper
+import com.m57.hermescontrol.share.ShareInbox
 import com.m57.hermescontrol.theme.LocalHermesStatusColors
 import com.m57.hermescontrol.ui.chat.components.ChatAppUpdateSection
 import com.m57.hermescontrol.ui.chat.components.ChatConnectionBanner
@@ -122,6 +123,7 @@ import com.m57.hermescontrol.ui.chat.components.SpeechRequest
 import com.m57.hermescontrol.ui.chat.components.SpeechText
 import com.m57.hermescontrol.ui.chat.components.SubagentInspectionSheet
 import com.m57.hermescontrol.ui.chat.components.TaskProgressChip
+import com.m57.hermescontrol.ui.chat.components.appendSharedComposerDraft
 import com.m57.hermescontrol.ui.chat.components.rememberChatImagePaste
 import com.m57.hermescontrol.ui.chat.components.rememberChatMediaLaunchers
 import com.m57.hermescontrol.ui.chat.components.rememberChatScrollController
@@ -355,6 +357,20 @@ fun ChatScreen(
         if (prefill != null) {
             inputState.replaceComposerDraft(prefill)
             viewModel.consumePendingPrefill()
+        }
+    }
+    // #1601: stage shared-in content once the session is usable, so a cold-start restore or
+    // a reconnect cannot reset the new chat out from under it. Nothing is ever auto-sent.
+    val parkedShare = ShareInbox.pending
+    LaunchedEffect(parkedShare, state.isSessionReady, state.connectionStatus) {
+        if (parkedShare != null && state.isSessionReady && state.connectionStatus == ConnectionStatus.CONNECTED) {
+            ShareInbox.take()?.let(viewModel::stageSharedContent)
+        }
+    }
+    LaunchedEffect(state.pendingSharedText) {
+        state.pendingSharedText?.let { shared ->
+            inputState.appendSharedComposerDraft(shared)
+            viewModel.consumePendingSharedText()
         }
     }
     LaunchedEffect(state.composerTextToRestore) {

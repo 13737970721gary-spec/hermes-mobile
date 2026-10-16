@@ -25,8 +25,9 @@ private const val PASTED_IMAGE_MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000
 internal fun cleanStalePastedImages(
     cacheDir: File,
     nowMs: Long = System.currentTimeMillis(),
+    directoryName: String = PASTED_IMAGE_DIRECTORY,
 ) {
-    val directory = File(cacheDir, PASTED_IMAGE_DIRECTORY)
+    val directory = File(cacheDir, directoryName)
     val files = runCatching { directory.listFiles() }.getOrNull() ?: return
     val cutoff = nowMs - PASTED_IMAGE_MAX_AGE_MS
     for (file in files) {

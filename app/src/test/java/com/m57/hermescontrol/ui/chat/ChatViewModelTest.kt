@@ -471,6 +471,104 @@ class ChatViewModelTest {
             assertFalse(viewModel.addPastedAttachments(target, emptyList()))
         }
 
+    // ── Shared-in content (#1601) ────────────────────────────────────────────
+
+    private fun sharedFile(name: String) =
+        com.m57.hermescontrol.data.model.Attachment(
+            uri = "content://com.m57.hermescontrol.fileprovider/shared/$name",
+            name = name,
+            mimeType = "image/png",
+            size = 3,
+        )
+
+    @Test
+    fun sharedContent_inEmptyReadyChat_isStagedInPlaceAndNeverSent() =
+        runTest(testDispatcher) {
+            val (viewModel, _) = createViewModelWithSession()
+            val creates = sentRequestMethods.count { it.first == WsMethods.SESSION_CREATE }
+
+            viewModel.stageSharedContent(
+                com.m57.hermescontrol.share
+                    .IncomingShare(text = "https://example.com", attachments = listOf(sharedFile("a.png"))),
+            )
+            advanceUntilIdle()
+
+            val state = viewModel.uiState.value
+            assertEquals("https://example.com", state.pendingSharedText)
+            assertEquals(listOf("a.png"), state.pendingAttachments.map { it.name })
+            assertEquals(creates, sentRequestMethods.count { it.first == WsMethods.SESSION_CREATE })
+            assertTrue(sentRequestMethods.none { it.first == WsMethods.PROMPT_SUBMIT })
+        }
+
+    @Test
+    fun sharedContent_inChatWithConversation_opensNewChatAndKeepsQueuedAttachments() =
+        runTest(testDispatcher) {
+            val (viewModel, sessionId) = createViewModelWithSession()
+            mockEventsFlow.emit(WsEvent.MessageComplete("earlier reply", sessionId))
+            advanceUntilIdle()
+            assertTrue(viewModel.uiState.value.hasConversation)
+            viewModel.addAttachment("content://x/queued", "queued.pdf", "application/pdf", 1)
+            val creates = sentRequestMethods.count { it.first == WsMethods.SESSION_CREATE }
+
+            viewModel.stageSharedContent(
+                com.m57.hermescontrol.share
+                    .IncomingShare(
+                        text = "note",
+                        attachments = listOf(sharedFile("a.png")),
+                        failed = listOf("bad.bin"),
+                    ),
+            )
+            advanceUntilIdle()
+
+            // The old chat is left behind and the share waits for the new session.
+            assertEquals(creates + 1, sentRequestMethods.count { it.first == WsMethods.SESSION_CREATE })
+            assertNull(viewModel.uiState.value.pendingSharedText)
+            assertTrue(
+                viewModel.uiState.value.pendingAttachments
+                    .isEmpty(),
+            )
+
+            val createId = sentRequestMethods.last { it.first == WsMethods.SESSION_CREATE }.second
+            mockEventsFlow.emit(WsEvent.RpcResult(createId, mapOf("session_id" to "session-456")))
+            advanceUntilIdle()
+
+            val state = viewModel.uiState.value
+            assertEquals("note", state.pendingSharedText)
+            assertEquals(listOf("queued.pdf", "a.png"), state.pendingAttachments.map { it.name })
+            // The relaxed Application mock returns "" for getString; the point is that a failure is surfaced.
+            assertNotNull(state.errorMessage)
+            assertTrue(sentRequestMethods.none { it.first == WsMethods.PROMPT_SUBMIT })
+        }
+
+    @Test
+    fun sharedContent_isAppliedExactlyOnceAcrossLaterSessions() =
+        runTest(testDispatcher) {
+            val (viewModel, sessionId) = createViewModelWithSession()
+            mockEventsFlow.emit(WsEvent.MessageComplete("earlier reply", sessionId))
+            advanceUntilIdle()
+            viewModel.stageSharedContent(
+                com.m57.hermescontrol.share
+                    .IncomingShare(attachments = listOf(sharedFile("a.png"))),
+            )
+            advanceUntilIdle()
+            val firstCreate = sentRequestMethods.last { it.first == WsMethods.SESSION_CREATE }.second
+            mockEventsFlow.emit(WsEvent.RpcResult(firstCreate, mapOf("session_id" to "session-456")))
+            advanceUntilIdle()
+            assertEquals(1, viewModel.uiState.value.pendingAttachments.size)
+
+            viewModel.createNewSession()
+            advanceUntilIdle()
+            val secondCreate = sentRequestMethods.last { it.first == WsMethods.SESSION_CREATE }.second
+            mockEventsFlow.emit(WsEvent.RpcResult(secondCreate, mapOf("session_id" to "session-789")))
+            advanceUntilIdle()
+
+            assertTrue(
+                viewModel.uiState.value.pendingAttachments
+                    .isEmpty(),
+            )
+            assertNull(viewModel.uiState.value.pendingSharedText)
+        }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     /** Create a ViewModel with the fake repo injected directly. */
