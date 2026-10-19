@@ -62,11 +62,40 @@ It connects to the Hermes dashboard (REST API and WebSocket gateway), so you nee
 - **Operations:** Stream and filter live logs, manage cron jobs, edit environment keys, test webhooks, and monitor processes.
 - **Gateway status:** Check the WebSocket connection, MCP servers, messaging channels, and OAuth providers.
 - **Productivity:** Manage tasks on Kanban boards, track agent milestones, and browse session history.
+- **Launcher shortcuts:** Long-press the app icon for New Chat, History, and recent conversations (launcher support required).
 - **Analytics and billing:** See usage analytics and manage billing or subscriptions.
 - **Theming:** Seven built-in presets (Default, Monochrome, Gruvbox, Catppuccin, AMOLED, Nord, Garnet), plus Material You dynamic colors on supported devices.
 - **Material 3 design:** Pull-to-refresh, a scroll-aware top bar, and customizable bottom navigation.
 
 ---
+
+### Unsent text drafts
+
+Unsent text is saved separately for each conversation, connection, and agent profile.
+A new conversation has its own draft slot until its first prompt. Drafts use encrypted
+local storage and are excluded from backups. Attachments are not saved as drafts.
+
+Normal typing is saved after a short pause. Leaving the chat or backgrounding the app
+also requests a save. A force-stop before a write finishes can lose recent edits.
+The existing send acceptance clears the saved draft; failed-send recovery remains available.
+Blank text removes its draft. Logout, connection removal, and individual or bulk conversation
+deletion remove the relevant drafts. At most 100 drafts per connection are retained for
+30 days; older drafts are removed first. Individual prompts are never truncated.
+
+### Launcher conversation privacy
+
+Conversation shortcuts expose their titles to your Android launcher. They are selected
+from the first recent-history page (up to 50 rows, including server-backfilled pins),
+with pinned conversations first and the remaining slots filled by recency. The launcher
+quota includes the two static actions. Hidden, archived, cron, bot-room, subagent, and
+child sessions are excluded. Only the current connection and agent profile are published;
+scope changes and logout retire their shortcuts. Home-screen copies pinned by a launcher
+cannot be deleted by the app; they are disabled and their labels/targets are scrubbed.
+
+Opening a conversation shortcut requires a live metadata check in its original scope.
+Unavailable, no-longer-recent, or deleted targets fall back to History rather than opening
+a same-id conversation on another server/profile. New Chat and History remain available
+without recent-conversation publishing. Share-sheet targets and voice shortcuts are not included.
 
 ## Quick Start
 
@@ -76,11 +105,74 @@ It connects to the Hermes dashboard (REST API and WebSocket gateway), so you nee
 
 ---
 
+## Verify a GitHub release APK
+
+Releases produced by the updated release workflow include `SHA256SUMS` and GitHub build provenance.
+Older releases may not include them. Select an explicit release tag, then run:
+
+```bash
+TAG=vX.Y.Z # Replace with the release tag to verify.
+gh release download "$TAG" --repo Hy4ri/hermes-mobile \
+  --pattern "hermes-mobile-${TAG}.apk" --pattern SHA256SUMS --pattern version.txt
+sha256sum --check SHA256SUMS
+gh attestation verify "hermes-mobile-${TAG}.apk" --repo Hy4ri/hermes-mobile \
+  --signer-workflow Hy4ri/hermes-mobile/.github/workflows/release.yml
+apksigner verify --print-certs "hermes-mobile-${TAG}.apk"
+```
+
+`gh` requires authentication and a version that supports `attestation verify`.
+`apksigner` is part of Android SDK Build Tools.
+
+These checks answer different questions:
+
+- **Checksum:** the downloaded bytes match the checksum file. This does not authenticate a compromised download source.
+- **Provenance:** GitHub recorded those exact bytes as output of this repository's release workflow.
+  Review the reported source commit and tag against the release you selected.
+- **Signing identity:** compare the signer SHA-256 digest with an independently trusted previous APK or maintainer-provided fingerprint.
+  A valid APK signature alone does not establish that the signer is trusted.
+
+Maintainers must configure the repository variable `RELEASE_CERTIFICATE_SHA256` with the existing release certificate's SHA-256 digest.
+Obtain it from an independently trusted release certificate, not from the APK currently being built.
+The workflow fails before publication if this variable is missing or the signer, package, or version differs.
+This change does not rotate the signing key or change F-Droid's signing identity.
+
+Release retries do not replace assets on an existing GitHub release. Inspect a failed run before retrying;
+an existing release, including an incomplete draft, requires a separate maintainer decision.
+Uploads stay in a draft until downloaded assets pass checksum verification.
+For manual dispatch, select the same tag as the input tag; branch-based dispatch fails to prevent misleading provenance.
+The selected tag must include the updated workflow and verification helper.
+End-to-end verification requires an explicitly authorized test release.
+
 ## Authentication
 
 The app detects which auth mode your dashboard uses and shows only the fields you need.
 
 > **Security:** Use HTTPS for remote connections. Plain HTTP/WS is for trusted local networks only, because authentication does not encrypt the transport.
+
+### Optional app lock
+
+**Settings → Behavior → App lock** adds a local UI privacy gate, off by default.
+Enabling or disabling it requires successful system authentication. Android 10+
+offers strong biometrics or the device credential; Android 8–9 uses the system
+PIN/pattern/password confirmation activity.
+
+Enabled cold starts always require authentication. Background returns lock after
+the selected timeout: immediately, 30 seconds (default), 1 minute, or 5 minutes.
+Screen off always locks, independently of that timeout. Tap **Unlock** to authenticate;
+cancelled/failed prompts stay locked and do not automatically reopen. Authorization
+survives activity rotation, but is never saved across process death. The current
+navigation, unsent drafts, dialog forms, and live ViewModel work are retained behind
+the gate. Screenshots and recent-app previews are blocked while the setting is enabled.
+
+If device security is removed or unavailable, the app stays locked. Use **Open Android
+Security settings** to restore a device PIN, pattern, or password, then return and
+authenticate. The app does not silently switch the setting off.
+
+Notification previews and launcher conversation labels are separate privacy boundaries.
+Inline notification replies are disabled whenever app lock is enabled, including stale
+reply actions: open and unlock the app to reply. This is not encryption of decrypted
+memory, protection against a rooted device, or a server-side permission change;
+already-running agent work and opted-in background connections can continue.
 
 ### 1. Start the dashboard
 

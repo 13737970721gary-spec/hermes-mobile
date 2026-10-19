@@ -32,6 +32,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.m57.hermescontrol.R
+import com.m57.hermescontrol.applock.AppLockSettingsSection
 import com.m57.hermescontrol.ui.common.HermesScaffold
 import com.m57.hermescontrol.ui.common.NavIcon
 import com.m57.hermescontrol.ui.settings.components.AboutSection
@@ -237,6 +238,10 @@ internal fun SettingsBehaviorPage(
     viewModel: SettingsViewModel = viewModel { SettingsViewModel() },
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    androidx.lifecycle.compose.LifecycleResumeEffect(viewModel) {
+        viewModel.refreshKeepScreenAwake()
+        onPauseOrDispose { }
+    }
 
     HermesScaffold(
         title = { Text(stringResource(R.string.settings_sec_behavior)) },
@@ -252,6 +257,8 @@ internal fun SettingsBehaviorPage(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             BehaviorSection(
+                keepScreenAwake = state.keepScreenAwake,
+                onKeepScreenAwakeChange = viewModel::onKeepScreenAwakeChange,
                 autoReconnect = state.autoReconnect,
                 onAutoReconnectChange = viewModel::onAutoReconnectChange,
                 keepConnectedInBackground = state.keepConnectedInBackground,
@@ -261,6 +268,7 @@ internal fun SettingsBehaviorPage(
                 restoreLastSession = state.restoreLastSession,
                 onRestoreLastSessionChange = viewModel::onRestoreLastSessionChange,
             )
+            AppLockSettingsSection()
         }
     }
 }

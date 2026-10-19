@@ -25,11 +25,11 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.input.clearText
-import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
@@ -37,10 +37,8 @@ import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -85,6 +83,8 @@ import com.m57.hermescontrol.HistoryScreen
 import com.m57.hermescontrol.LogsScreen
 import com.m57.hermescontrol.NavigationController
 import com.m57.hermescontrol.R
+import com.m57.hermescontrol.applock.AlertDialog
+import com.m57.hermescontrol.applock.DropdownMenu
 import com.m57.hermescontrol.data.local.AuthManager
 import com.m57.hermescontrol.data.model.Attachment
 import com.m57.hermescontrol.data.model.AttachmentSource
@@ -93,6 +93,7 @@ import com.m57.hermescontrol.data.session.ActiveSessionHolder
 import com.m57.hermescontrol.data.ws.ConnectionStatus
 import com.m57.hermescontrol.data.ws.HermesWsClient
 import com.m57.hermescontrol.notification.NotificationHelper
+import com.m57.hermescontrol.share.ShareInbox
 import com.m57.hermescontrol.theme.LocalHermesStatusColors
 import com.m57.hermescontrol.ui.chat.components.ChatAppUpdateSection
 import com.m57.hermescontrol.ui.chat.components.ChatConnectionBanner
@@ -122,10 +123,12 @@ import com.m57.hermescontrol.ui.chat.components.SpeechRequest
 import com.m57.hermescontrol.ui.chat.components.SpeechText
 import com.m57.hermescontrol.ui.chat.components.SubagentInspectionSheet
 import com.m57.hermescontrol.ui.chat.components.TaskProgressChip
+import com.m57.hermescontrol.ui.chat.components.appendSharedComposerDraft
 import com.m57.hermescontrol.ui.chat.components.rememberChatImagePaste
 import com.m57.hermescontrol.ui.chat.components.rememberChatMediaLaunchers
 import com.m57.hermescontrol.ui.chat.components.rememberChatScrollController
 import com.m57.hermescontrol.ui.chat.components.rememberChatSpeech
+import com.m57.hermescontrol.ui.chat.components.rememberPersistentComposerDraft
 import com.m57.hermescontrol.ui.chat.components.replaceComposerDraft
 import com.m57.hermescontrol.ui.chat.components.restoreRejectedComposerDraft
 import com.m57.hermescontrol.ui.chat.components.shouldShowProgressChip
@@ -137,6 +140,7 @@ import com.m57.hermescontrol.ui.common.AutoScrollingTitleText
 import com.m57.hermescontrol.ui.common.CredentialWarningBanner
 import com.m57.hermescontrol.ui.common.HermesScaffold
 import com.m57.hermescontrol.ui.common.NavIcon
+import com.m57.hermescontrol.ui.common.ReadableContentMaxWidth
 import com.m57.hermescontrol.ui.model.components.ModelPickerDialog
 import com.m57.hermescontrol.ui.settings.SettingsViewModel
 import com.m57.hermescontrol.util.ConnectorUrlValidator
@@ -188,6 +192,11 @@ fun ChatScreen(
     val connectionOperationState by viewModel.connectionOperationState.collectAsStateWithLifecycle()
     val settingsViewModel: SettingsViewModel = viewModel()
     val settingsState by settingsViewModel.uiState.collectAsStateWithLifecycle()
+    ChatKeepScreenAwakeEffect(enabled = settingsState.keepScreenAwake)
+    androidx.lifecycle.compose.LifecycleResumeEffect(settingsViewModel) {
+        settingsViewModel.refreshKeepScreenAwake()
+        onPauseOrDispose { }
+    }
     // Snapshot-backed search state — read directly so only the scopes that
     // read its fields recompose on search changes (bar, matched bubbles).
     val searchState = viewModel.searchState
@@ -348,16 +357,38 @@ fun ChatScreen(
             !timelineState.isHistorical && scrollController.showFab(displayedMessages.isNotEmpty())
         }
     }
-    val inputState = rememberTextFieldState()
+    val composerDraft =
+        rememberPersistentComposerDraft(
+            scope = state.composerScope,
+            generation = state.composerGeneration,
+            // Unsaved gateway sessions disappear on restart; retain the new-chat slot until a send.
+            sessionId = state.composerDraftSessionId,
+            onFailure = viewModel::reportComposerDraftFailure,
+        )
+    val inputState = composerDraft.input
 
-    LaunchedEffect(state.pendingPrefillText) {
+    LaunchedEffect(inputState, state.pendingPrefillText) {
         val prefill = state.pendingPrefillText
         if (prefill != null) {
             inputState.replaceComposerDraft(prefill)
             viewModel.consumePendingPrefill()
         }
     }
-    LaunchedEffect(state.composerTextToRestore) {
+    // #1601: stage shared-in content once the session is usable, so a cold-start restore or
+    // a reconnect cannot reset the new chat out from under it. Nothing is ever auto-sent.
+    val parkedShare = ShareInbox.pending
+    LaunchedEffect(parkedShare, state.isSessionReady, state.connectionStatus) {
+        if (parkedShare != null && state.isSessionReady && state.connectionStatus == ConnectionStatus.CONNECTED) {
+            ShareInbox.take()?.let(viewModel::stageSharedContent)
+        }
+    }
+    LaunchedEffect(inputState, state.pendingSharedText) {
+        state.pendingSharedText?.let { shared ->
+            inputState.appendSharedComposerDraft(shared)
+            viewModel.consumePendingSharedText()
+        }
+    }
+    LaunchedEffect(inputState, state.composerTextToRestore) {
         state.composerTextToRestore?.let { text ->
             inputState.restoreRejectedComposerDraft(text)
             viewModel.consumeComposerTextRestore()
@@ -486,6 +517,13 @@ fun ChatScreen(
         snackbarHostState = snackbarHostState,
         viewModel = viewModel,
         isOverlayActive = !isChatContentReadable,
+        hasUnsentWork =
+            inputState.text.isNotEmpty() || state.pendingAttachments.isNotEmpty() ||
+                state.pendingSends.isNotEmpty() || state.pendingPrefillText != null ||
+                state.pendingSharedText != null || state.composerTextToRestore != null || parkedShare != null,
+        deferTileNavigation =
+            state.isLoading || mediaLaunchers.isListening || state.isTranscribingVoiceNote,
+        onClearDraft = { inputState.replaceComposerDraft("") },
     )
 
     HermesScaffold(
@@ -559,6 +597,7 @@ fun ChatScreen(
             Box {
                 IconButton(
                     onClick = {
+                        settingsViewModel.refreshKeepScreenAwake()
                         settingsViewModel.refreshKeepConnectedInBackground()
                         showSessionMenu = true
                     },
@@ -631,6 +670,10 @@ fun ChatScreen(
                         },
                         modifier = Modifier.testTag("chat_menu_session_integrations"),
                     )
+                    ChatKeepScreenAwakeMenuItem(
+                        checked = settingsState.keepScreenAwake,
+                        onToggle = settingsViewModel::onKeepScreenAwakeChange,
+                    )
                     ChatBackgroundConnectionMenuItem(
                         checked = settingsState.keepConnectedInBackground,
                         onToggle = settingsViewModel::onKeepConnectedInBackgroundChange,
@@ -644,7 +687,9 @@ fun ChatScreen(
                 Modifier
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.background)
-                    .imePadding(),
+                    .imePadding()
+                    .wrapContentWidth(Alignment.CenterHorizontally)
+                    .widthIn(max = ReadableContentMaxWidth),
         ) {
             ChatConnectionBanner(
                 connectionStatus = state.connectionStatus,
@@ -929,7 +974,7 @@ fun ChatScreen(
                 isReceivingContent = imagePaste.isReceiving,
                 onSend = {
                     if (!imagePaste.isReceiving && viewModel.sendMessage(inputState.text.toString())) {
-                        inputState.clearText()
+                        composerDraft.accepted()
                         // Jump only after an accepted send. A readiness race keeps the draft intact.
                         scrollController.jumpToBottom(animated = true)
                     }
@@ -956,6 +1001,7 @@ fun ChatScreen(
                 onImageTap = mediaLaunchers.onImageTap,
                 onFileTap = mediaLaunchers.onFileTap,
                 onRemoveAttachment = viewModel::removeAttachment,
+                onSendOriginalChange = viewModel::setAttachmentSendOriginal,
                 onPreviewAttachment = { attachment ->
                     if (attachment.isImage) {
                         viewingImage =

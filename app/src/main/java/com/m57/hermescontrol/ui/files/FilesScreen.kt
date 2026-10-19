@@ -29,7 +29,6 @@ import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -58,8 +57,10 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.m57.hermescontrol.R
+import com.m57.hermescontrol.applock.AlertDialog
 import com.m57.hermescontrol.data.local.AuthManager
 import com.m57.hermescontrol.data.model.ManagedFileEntry
+import com.m57.hermescontrol.ui.chat.normalizeFrameworkMime
 import com.m57.hermescontrol.ui.common.EmptyState
 import com.m57.hermescontrol.ui.common.ErrorState
 import com.m57.hermescontrol.ui.common.HermesScaffold
@@ -525,7 +526,8 @@ private fun openManagedFile(
                         )
                     val intent =
                         Intent(Intent.ACTION_VIEW).apply {
-                            setDataAndType(uri, data.mimeType)
+                            // #1623: Intent MIME types must not contain HTTP parameters.
+                            setDataAndType(uri, normalizeFrameworkMime(data.mimeType))
                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         }
                     context.startActivity(intent)

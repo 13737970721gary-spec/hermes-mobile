@@ -10,6 +10,7 @@ import coil3.gif.GifDecoder
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.crossfade
 import com.m57.hermescontrol.data.local.AuthManager
+import com.m57.hermescontrol.data.local.ComposerDraftStore
 import com.m57.hermescontrol.data.local.SessionListCacheStore
 import com.m57.hermescontrol.data.remote.CertificateImageInterceptor
 import com.m57.hermescontrol.data.remote.ClientCertificates
@@ -18,6 +19,8 @@ import com.m57.hermescontrol.data.remote.OkHttpProvider
 import com.m57.hermescontrol.data.remote.ServerCaRestrictions
 import com.m57.hermescontrol.data.remote.ServerTrust
 import com.m57.hermescontrol.notification.TurnCorrelationTracker
+import com.m57.hermescontrol.share.SHARE_INBOX_DIRECTORY
+import com.m57.hermescontrol.shortcuts.LauncherShortcuts
 import com.m57.hermescontrol.ui.analytics.AnalyticsPreloader
 import com.m57.hermescontrol.ui.chat.cleanStalePastedImages
 import kotlinx.coroutines.CoroutineScope
@@ -36,11 +39,14 @@ class HermesControlApp :
         val startupTimeMs = System.currentTimeMillis()
         appScope.launch(Dispatchers.IO) {
             cleanStalePastedImages(cacheDir, startupTimeMs)
+            cleanStalePastedImages(cacheDir, startupTimeMs, SHARE_INBOX_DIRECTORY)
         }
         ServerTrust.initialize(this)
         ServerCaRestrictions.initialize(this)
         ClientCertificates.initialize(this)
         AuthManager.init(this)
+        ComposerDraftStore.get(this)
+        LauncherShortcuts.initialize(this, appScope)
         NetworkMonitor.init(this)
         SessionListCacheStore.init(this)
         // Reply-notification turn boundaries survive process death (armed before

@@ -50,7 +50,6 @@ import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
@@ -59,7 +58,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
@@ -97,11 +95,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.m57.hermescontrol.ChatScreen
 import com.m57.hermescontrol.NavigationController
 import com.m57.hermescontrol.R
+import com.m57.hermescontrol.applock.AlertDialog
+import com.m57.hermescontrol.applock.DropdownMenu
 import com.m57.hermescontrol.data.model.SessionInfo
 import com.m57.hermescontrol.data.model.SessionTreeItem
 import com.m57.hermescontrol.data.model.flattenSessionsWithBranches
@@ -213,7 +215,6 @@ fun SessionsScreen(
     val primaryContainer = MaterialTheme.colorScheme.primaryContainer
     val onPrimaryContainer = MaterialTheme.colorScheme.onPrimaryContainer
 
-    var pruneDays by remember { mutableStateOf("7") }
     var expandedAutomationGroups by remember { mutableStateOf(emptySet<String>()) }
 
     val sessionsToDisplay =
@@ -275,8 +276,11 @@ fun SessionsScreen(
         viewModel.startLiveStatusTracking()
         onDispose {
             viewModel.stopLiveStatusTracking()
+            viewModel.clearHistoryFeedback()
         }
     }
+
+    LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { viewModel.clearHistoryFeedback() }
 
     // Toast effect
     ToastEffect(
@@ -309,6 +313,13 @@ fun SessionsScreen(
 
     // Prune dialog
     if (state.showPruneDialog) {
+        val progress = state.pruneProgress
+        val preview = state.prunePreview
+        val canPrune = !state.isPruning && preview != 0
+        val runPrune = {
+            val days = state.pruneDays.toIntOrNull()
+            if (days != null && days > 0) viewModel.pruneSessions(days)
+        }
         AlertDialog(
             onDismissRequest = { viewModel.hidePruneDialog() },
             title = { Text(stringResource(R.string.sessions_prune_title)) },
@@ -317,38 +328,93 @@ fun SessionsScreen(
                     Text(stringResource(R.string.sessions_prune_desc))
                     Spacer(modifier = Modifier.height(spacing.md))
                     OutlinedTextField(
-                        value = pruneDays,
-                        onValueChange = { pruneDays = it.filter { c -> c.isDigit() } },
+                        value = state.pruneDays,
+                        onValueChange = viewModel::setPruneDays,
+                        enabled = !state.isPruning,
                         label = { Text(stringResource(R.string.sessions_prune_days_label)) },
                         placeholder = { Text("7") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        keyboardActions =
-                            KeyboardActions(
-                                onDone = {
-                                    val days = pruneDays.toIntOrNull()
-                                    if (days != null && days > 0) viewModel.pruneSessions(days)
-                                },
-                            ),
+                        keyboardActions = KeyboardActions(onDone = { if (canPrune) runPrune() }),
+                    )
+                    Spacer(modifier = Modifier.height(spacing.sm))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Checkbox(
+                            checked = state.pruneIncludeArchived,
+                            onCheckedChange = viewModel::setPruneIncludeArchived,
+                            enabled = !state.isPruning,
+                        )
+                        Column {
+                            Text(
+                                text = stringResource(R.string.sessions_prune_include_archived),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Text(
+                                text = stringResource(R.string.sessions_prune_include_archived_help),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(spacing.sm))
+                    Text(
+                        text =
+                            when {
+                                progress != null -> {
+                                    stringResource(
+                                        R.string.sessions_prune_progress,
+                                        progress.first,
+                                        progress.second,
+                                    )
+                                }
+
+                                state.isPrunePreviewLoading -> {
+                                    stringResource(R.string.sessions_prune_preview_loading)
+                                }
+
+                                preview == null -> {
+                                    ""
+                                }
+
+                                preview == 0 -> {
+                                    stringResource(R.string.sessions_prune_preview_none)
+                                }
+
+                                else -> {
+                                    stringResource(R.string.sessions_prune_preview, preview)
+                                }
+                            },
+                        style = MaterialTheme.typography.bodySmall,
+                        color =
+                            if (preview == 0) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                statusColors.warning
+                            },
                     )
                 }
             },
             confirmButton = {
                 Button(
-                    onClick = {
-                        val days = pruneDays.toIntOrNull()
-                        if (days != null && days > 0) viewModel.pruneSessions(days)
-                    },
+                    onClick = { runPrune() },
+                    enabled = canPrune,
                     colors =
                         ButtonDefaults.buttonColors(
                             containerColor = statusColors.error,
                         ),
                 ) {
-                    Text(stringResource(R.string.sessions_prune_confirm))
+                    if (state.isPruning) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    } else {
+                        Text(stringResource(R.string.sessions_prune_confirm))
+                    }
                 }
             },
             dismissButton = {
-                TextButton(onClick = { viewModel.hidePruneDialog() }) {
+                TextButton(onClick = { viewModel.hidePruneDialog() }, enabled = !state.isPruning) {
                     Text(stringResource(R.string.action_cancel))
                 }
             },
@@ -458,6 +524,13 @@ fun SessionsScreen(
 
     HermesScaffold(
         title = { Text(stringResource(R.string.screen_history)) },
+        snackbarHost = {
+            HistoryActionSnackbarHost(
+                feedback = state.historyFeedback,
+                onUndo = viewModel::undoHistoryChange,
+                onDismiss = viewModel::dismissHistoryFeedback,
+            )
+        },
         navigationIcon = onOpenDrawer?.let { NavIcon.Menu(it) },
         isRefreshing = state.isLoading,
         onRefresh = { viewModel.loadSessions(forceRefresh = true) },
@@ -944,6 +1017,7 @@ fun SessionsScreen(
                                         isDeleting = session.id in state.deletingSessionIds,
                                         isPinned = session.pinned == true,
                                         isArchived = session.archived == true,
+                                        historyActionsEnabled = !state.isChangingHistory,
                                         liveStatus = state.liveStatuses[session.id],
                                         project = project,
                                         nowMillis = nowMillis,

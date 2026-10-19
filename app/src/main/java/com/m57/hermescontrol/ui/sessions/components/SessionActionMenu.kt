@@ -7,13 +7,13 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Unarchive
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import com.m57.hermescontrol.R
+import com.m57.hermescontrol.applock.DropdownMenu
 import com.m57.hermescontrol.theme.LocalHermesStatusColors
 
 /**
@@ -27,6 +27,7 @@ fun SessionActionMenu(
     isPinned: Boolean = false,
     onTogglePin: (() -> Unit)? = null,
     isArchived: Boolean = false,
+    historyActionsEnabled: Boolean = true,
     onToggleArchive: (() -> Unit)? = null,
     onSelect: () -> Unit,
     onRename: () -> Unit,
@@ -48,6 +49,7 @@ fun SessionActionMenu(
                     )
                 },
                 leadingIcon = { Icon(Icons.Filled.PushPin, contentDescription = null) },
+                enabled = historyActionsEnabled && !isDeleting,
                 onClick = onTogglePin,
             )
         }
@@ -75,6 +77,7 @@ fun SessionActionMenu(
                         contentDescription = null,
                     )
                 },
+                enabled = historyActionsEnabled && !isDeleting,
                 onClick = onToggleArchive,
             )
         }

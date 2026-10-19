@@ -70,12 +70,17 @@ import com.m57.hermescontrol.data.ws.contract.SessionListParams
 import com.m57.hermescontrol.data.ws.contract.SessionResumeParams
 import com.m57.hermescontrol.data.ws.contract.SessionWorkspaceMoveParams
 import com.m57.hermescontrol.data.ws.contract.SlashExecParams
+import com.m57.hermescontrol.data.ws.contract.SubagentInterruptParams
+import com.m57.hermescontrol.data.ws.contract.SubagentSteerParams
 import com.m57.hermescontrol.data.ws.contract.TypedRpcSender
 import com.m57.hermescontrol.data.ws.toAny
 import com.m57.hermescontrol.data.ws.toJsonElement
 import com.m57.hermescontrol.notification.ReplyNotificationTracker
+import com.m57.hermescontrol.notification.RequestNoticeCoordinator
 import com.m57.hermescontrol.notification.captureTurnBoundary
 import com.m57.hermescontrol.notification.correlationScopeId
+import com.m57.hermescontrol.share.IncomingShare
+import com.m57.hermescontrol.share.describeFailedShares
 import com.m57.hermescontrol.ui.chat.fullbleed.TranscriptUiState
 import com.m57.hermescontrol.ui.chat.tool.ToolViewCache
 import com.m57.hermescontrol.ui.common.ActionProgressController
@@ -180,6 +185,9 @@ private sealed interface PrepareAttachmentResult {
 data class ChatUiState(
     val messages: List<ChatMessage> = emptyList(),
     val currentSessionId: String? = null,
+    val composerScope: DataScope? = null,
+    val composerSessionId: String? = null,
+    val composerGeneration: Long = 0L,
     val sessions: List<SessionUi> = emptyList(),
     val chatTitle: String = "Hermes",
     val connectionStatus: ConnectionStatus = ConnectionStatus.DISCONNECTED,
@@ -327,12 +335,18 @@ data class ChatUiState(
     val isResumeRetrying: Boolean = false,
     /** Text staged to prefill the composer (e.g. from /undo). */
     val pendingPrefillText: String? = null,
+    /** Shared-in text (#1601), appended to the live draft by the screen; never replaces it. */
+    val pendingSharedText: String? = null,
 ) {
     /** Convenience — derived from [connectionStatus]. */
     val isConnected: Boolean get() = connectionStatus == ConnectionStatus.CONNECTED
 
     /** False until the user (or agent) says something; the "Session created" marker does not count (#1527). */
     val hasConversation: Boolean get() = messages.any { !it.isSessionStartMarker() }
+
+    // #1605: an unprompted gateway session disappears on restart; keep its draft in the new-chat slot.
+    val composerDraftSessionId: String?
+        get() = composerSessionId ?: currentSessionId.takeIf { messages.any { it.role == MessageRole.USER } }
 
     /**
      * True only while a generation can actually be interrupted: typing can
@@ -521,7 +535,8 @@ class ChatViewModel(
         }
 
     // ── Internal state ───────────────────────────────────────────────────
-    private val _uiState = MutableStateFlow(ChatUiState())
+    private val _uiState =
+        MutableStateFlow(ChatUiState(composerScope = runCatching { AuthManager.currentDataScope() }.getOrNull()))
     private val localTranscriptAppendLock = Any()
     private var localTranscriptPersistenceTail: Job? = null
 
@@ -648,6 +663,9 @@ class ChatViewModel(
     )
 
     private var pendingInitialPrompt: PendingPrompt? = null
+
+    /** Shared content waiting for the new session it was routed to (#1601); survives session resets. */
+    private var stagedShare: IncomingShare? = null
 
     /**
      * Whether the gateway has confirmed a persisted DB row for the current
@@ -1016,6 +1034,12 @@ class ChatViewModel(
                 }
             }
         }
+        // An approval answered from the notification shade: retire its chat card.
+        viewModelScope.launch {
+            RequestNoticeCoordinator.answeredServerRequests.collect { id ->
+                approvalsDelegate.cancelServerRequest(id)
+            }
+        }
         // B7 (Jun 30 2026, kanban t_connection_loading): clear loading state on connection failure or status change
         viewModelScope.launch {
             wsClient.connectionStatus.collect { status ->
@@ -1183,7 +1207,16 @@ class ChatViewModel(
         // cancel a pending retry — the re-resume below rebinds the session
         // on the new socket (desktop parity: gatewayBecameOpen re-resumes
         // even when the route looks already active).
-        _uiState.update { it.copy(isLoading = false, resumeError = null, isResumeRetrying = false) }
+        // #1605: an activity-scoped VM can survive logout/login. Never retain its revoked draft owner.
+        val composerScope = AuthManager.currentDataScope()
+        _uiState.update {
+            it.copy(
+                isLoading = false,
+                resumeError = null,
+                isResumeRetrying = false,
+                composerScope = composerScope,
+            )
+        }
         cancelResumeRetry()
         loadSessions()
         // A new socket orphans in-flight catalog requests; refetch for the draft owner.
@@ -2144,6 +2177,10 @@ class ChatViewModel(
                 ActiveSessionHolder.set(runtimeId, storageId)
                 _streamingState.update { StreamingState() }
                 addSystemMessage("Session created", persist = true)
+                stagedShare?.let { share ->
+                    stagedShare = null
+                    applySharedContent(share)
+                }
                 loadSessions()
                 fetchContextUsage()
 
@@ -3182,7 +3219,7 @@ class ChatViewModel(
                                     val count = source.read(buffer)
                                     if (count < 0) break
                                     copied += count
-                                    if (copied > MAX_CHAT_ATTACHMENT_BYTES) {
+                                    if (copied > attachment.sourceByteLimit()) {
                                         throw QueuedAttachmentTooLargeException(attachment)
                                     }
                                     output.write(buffer, 0, count)
@@ -3400,6 +3437,12 @@ class ChatViewModel(
         }
     }
 
+    fun reportComposerDraftFailure() {
+        _uiState.update {
+            it.copy(errorMessage = getApplication<Application>().getString(R.string.chat_draft_storage_error))
+        }
+    }
+
     /**
      * Send a user prompt, uploading any pending attachments to the backend
      * first via their dedicated RPC methods.
@@ -3436,7 +3479,7 @@ class ChatViewModel(
 
         val oversizedAttachment =
             _uiState.value.pendingAttachments.firstOrNull {
-                it.size > MAX_CHAT_ATTACHMENT_BYTES
+                it.size > it.sourceByteLimit()
             }
         if (oversizedAttachment != null) {
             _uiState.update {
@@ -4090,12 +4133,20 @@ class ChatViewModel(
     /** Snapshot one URI to private cache while enforcing the outbound frame limit. */
     private suspend fun prepareAttachment(attachment: Attachment): PrepareAttachmentResult {
         var encodedFile: File? = null
+        var photo: PreparedPhoto? = null
         return try {
             val context = getApplication<Application>()
             val uri = Uri.parse(attachment.uri)
+            if (!attachment.sendOriginal && attachment.canOptimizePhoto()) {
+                photo =
+                    preparePhotoUpload(attachment, context.cacheDir) { context.contentResolver.openInputStream(uri) }
+                        ?: return PrepareAttachmentResult.Unreadable
+            }
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
             encodedFile = File.createTempFile("chat-attachment-", ".b64", context.cacheDir)
+            val inputStream = photo?.file?.inputStream() ?: context.contentResolver.openInputStream(uri)
             val result =
-                context.contentResolver.openInputStream(uri)?.use { input ->
+                inputStream?.use { input ->
                     encodedFile.outputStream().buffered().use { output ->
                         encodeAttachmentBase64(input, output)
                     }
@@ -4103,7 +4154,7 @@ class ChatViewModel(
 
             when (result) {
                 AttachmentSizeResult.WITHIN_LIMIT -> {
-                    PrepareAttachmentResult.Success(PreparedAttachment(attachment, encodedFile))
+                    PrepareAttachmentResult.Success(PreparedAttachment(photo?.attachment ?: attachment, encodedFile))
                 }
 
                 AttachmentSizeResult.TOO_LARGE -> {
@@ -4113,8 +4164,11 @@ class ChatViewModel(
         } catch (e: Exception) {
             encodedFile?.delete()
             if (e is kotlinx.coroutines.CancellationException) throw e
+            if (e is PhotoSourceTooLarge) return PrepareAttachmentResult.TooLarge
             Log.e(TAG, "Failed to prepare attachment: ${e.message}", e)
             PrepareAttachmentResult.Unreadable
+        } finally {
+            photo?.file?.delete()
         }
     }
 
@@ -4140,7 +4194,11 @@ class ChatViewModel(
     }
 
     private fun attachmentTooLargeMessage(attachment: Attachment): String =
-        "Attachment too large: ${attachment.name} (maximum 10 MB)"
+        if (!attachment.sendOriginal && attachment.canOptimizePhoto()) {
+            "Attachment too large: ${attachment.name} (photo source maximum 50 MB; upload maximum 10 MB)"
+        } else {
+            "Attachment too large: ${attachment.name} (maximum 10 MB)"
+        }
 
     // ── Attachment management ─────────────────────────────────────────────
 
@@ -4157,6 +4215,11 @@ class ChatViewModel(
     ) = attachmentsDelegate.addAttachment(uri, name, mimeType, size)
 
     fun addAttachments(attachments: List<Attachment>) = attachmentsDelegate.addAttachments(attachments)
+
+    fun setAttachmentSendOriginal(
+        index: Int,
+        sendOriginal: Boolean,
+    ) = attachmentsDelegate.setSendOriginal(index, sendOriginal)
 
     /** Clipboard reads are asynchronous: bind them to this exact session generation and server. */
     internal fun captureAttachmentTarget(): ChatAttachmentTarget? {
@@ -5033,6 +5096,42 @@ class ChatViewModel(
         _uiState.update { it.copy(pendingPrefillText = null) }
     }
 
+    fun consumePendingSharedText() {
+        _uiState.update { it.copy(pendingSharedText = null) }
+    }
+
+    /**
+     * Stages content shared into the app (#1601) in a new chat, never sending it. A chat that
+     * has no conversation yet is reused. The session reset wipes pending attachments, so any the
+     * user already queued ride along and are restored with the share.
+     */
+    internal fun stageSharedContent(share: IncomingShare) {
+        val state = _uiState.value
+        if (!state.hasConversation && state.isSessionReady && !_timelineState.value.isHistorical) {
+            applySharedContent(share)
+            return
+        }
+        val carried = share.copy(attachments = state.pendingAttachments + share.attachments)
+        stagedShare = stagedShare?.plus(carried) ?: carried
+        createNewSession(setLoading = false)
+    }
+
+    private fun applySharedContent(share: IncomingShare) {
+        val failure =
+            share.failed.takeIf { it.isNotEmpty() }?.let {
+                getApplication<Application>().getString(R.string.share_attach_failed, describeFailedShares(it))
+            }
+        _uiState.update { state ->
+            state.copy(
+                pendingAttachments = (state.pendingAttachments + share.attachments).distinctBy { it.uri },
+                pendingSharedText =
+                    share.text?.let { text -> state.pendingSharedText?.let { "$it\n\n$text" } ?: text }
+                        ?: state.pendingSharedText,
+                errorMessage = failure ?: state.errorMessage,
+            )
+        }
+    }
+
     // ── Session management ───────────────────────────────────────────────
 
     fun interruptSession() {
@@ -5072,82 +5171,102 @@ class ChatViewModel(
         }
     }
 
-    /**
-     * Send course-correction guidance to a live subagent child session (issue #1030).
-     */
+    /** Queue guidance for one exact child, never slash-command text on the parent (issue #1618). */
     fun steerSubagent(
         indicator: SubagentIndicator,
         message: String,
     ) {
-        val trimmed = message.trim()
-        if (trimmed.isBlank()) return
-        val sessionId = runtimeSessionId ?: return
-        val subagentId = indicator.subagentId
-        val steerCommand =
-            if (!subagentId.isNullOrBlank()) {
-                "/steer $subagentId $trimmed"
-            } else {
-                "/steer $trimmed"
+        val text = message.trim()
+        if (text.isBlank()) return
+        controlSubagent(indicator, SubagentControlState.STEERING) { sessionId, childId ->
+            val result =
+                wsClient.call(
+                    RpcMethods.SUBAGENT_STEER,
+                    SubagentSteerParams(sessionId, childId, text),
+                    suppressErrorEvent = true,
+                )
+            require(result.subagentId == childId) { "Unexpected child control response" }
+            when (result.status) {
+                "queued" -> SubagentControlState.STEER_QUEUED
+                "rejected" -> SubagentControlState.STEER_REJECTED
+                else -> SubagentControlState.ERROR
             }
-        viewModelScope.launch(ioDispatcher) {
-            wsClient.sendRedirect(
-                sessionId,
-                steerCommand,
-                onSent = { id -> trackRequest(id, WsMethods.SESSION_REDIRECT) },
-            )
-        }
-        _uiState.update { current ->
-            val updated =
-                current.subagentIndicators.map { ind ->
-                    if (ind.subagentId == indicator.subagentId &&
-                        (ind.goal == indicator.goal || indicator.subagentId != null)
-                    ) {
-                        val newLogs =
-                            (ind.logs + SubagentLogLine(text = "Course correction: \"$trimmed\"", isSummary = true))
-                                .takeLast(30)
-                        ind.copy(status = "steered", logs = newLogs)
-                    } else {
-                        ind
-                    }
-                }
-            current.copy(subagentIndicators = updated)
         }
     }
 
-    /**
-     * Stop / interrupt a single live subagent early (issue #1030).
-     */
+    /** Acknowledgement means interruption requested; live events own terminal status (issue #1618). */
     fun stopSubagent(indicator: SubagentIndicator) {
-        val sessionId = runtimeSessionId ?: return
-        val subagentId = indicator.subagentId
-        val stopCommand =
-            if (!subagentId.isNullOrBlank()) {
-                "/stop $subagentId"
-            } else {
-                "/stop"
+        controlSubagent(indicator, SubagentControlState.STOPPING) { sessionId, childId ->
+            val result =
+                wsClient.call(
+                    RpcMethods.SUBAGENT_INTERRUPT,
+                    SubagentInterruptParams(sessionId, childId),
+                    suppressErrorEvent = true,
+                )
+            require(result.subagentId == childId) { "Unexpected child control response" }
+            when (result.found) {
+                true -> SubagentControlState.STOP_REQUESTED
+                false -> SubagentControlState.NOT_FOUND
+                null -> SubagentControlState.ERROR
             }
-        viewModelScope.launch(ioDispatcher) {
-            wsClient.sendRedirect(
-                sessionId,
-                stopCommand,
-                onSent = { id -> trackRequest(id, WsMethods.SESSION_REDIRECT) },
-            )
         }
-        _uiState.update { current ->
-            val updated =
-                current.subagentIndicators.map { ind ->
-                    if (ind.subagentId == indicator.subagentId &&
-                        (ind.goal == indicator.goal || indicator.subagentId != null)
-                    ) {
-                        val newLogs =
-                            (ind.logs + SubagentLogLine(text = "Stopped subagent", isError = true))
-                                .takeLast(30)
-                        ind.copy(status = "cancelled", logs = newLogs)
+    }
+
+    private fun controlSubagent(
+        indicator: SubagentIndicator,
+        pending: SubagentControlState,
+        request: suspend (String, String) -> SubagentControlState,
+    ) {
+        val childId = indicator.subagentId?.takeIf { it.isNotBlank() } ?: return
+        val storageId = _uiState.value.currentSessionId ?: return
+        val runtimeId = runtimeSessionId ?: return
+        val owner = captureSendOwner(storageId, runtimeId)
+        val dataScope = AuthManager.currentDataScope()
+        val child = _uiState.value.subagentIndicators.firstOrNull { it.subagentId == childId } ?: return
+        if (!child.isRunning || child.isControlPending || child.controlsUnavailable) return
+
+        fun isOwner(): Boolean = isCurrentSendContext(owner) && AuthManager.currentDataScope() == dataScope
+
+        fun publish(state: SubagentControlState?) {
+            if (!isOwner()) return
+            _uiState.update { current ->
+                current.copy(
+                    subagentIndicators =
+                        current.subagentIndicators.map { item ->
+                            if (item.subagentId == childId && item.isRunning) {
+                                item.copy(controlState = state)
+                            } else {
+                                item
+                            }
+                        },
+                )
+            }
+        }
+
+        publish(pending)
+        // Main serializes ownership validation with the synchronous RPC enqueue (issue #1618).
+        viewModelScope.launch {
+            if (!isOwner()) return@launch
+            if (wsClient.connectionStatus.value != ConnectionStatus.CONNECTED) {
+                publish(SubagentControlState.ERROR)
+                return@launch
+            }
+            val current = _uiState.value.subagentIndicators.firstOrNull { it.subagentId == childId }
+            if (current?.isRunning != true || current.controlState != pending) return@launch
+            try {
+                publish(request(runtimeId, childId))
+            } catch (e: CancellationException) {
+                publish(null)
+                throw e
+            } catch (e: Exception) {
+                publish(
+                    if (e is HermesWsClient.HermesRpcException && e.code == -32601) {
+                        SubagentControlState.UNSUPPORTED
                     } else {
-                        ind
-                    }
-                }
-            current.copy(subagentIndicators = updated)
+                        SubagentControlState.ERROR
+                    },
+                )
+            }
         }
     }
 
@@ -6210,6 +6329,7 @@ class ChatViewModel(
         isLoading: Boolean,
     ): Long {
         val generation = ++sessionGeneration
+        val composerScope = runCatching { AuthManager.currentDataScope() }.getOrNull()
         // A slow drain belongs to the old session and must not block the resumed queue.
         queueDrainJob?.cancel()
         queueDrainJob = null
@@ -6252,6 +6372,9 @@ class ChatViewModel(
                 messages = emptyList(),
                 isSessionReady = false,
                 currentSessionId = sessionId,
+                composerScope = composerScope,
+                composerSessionId = sessionId,
+                composerGeneration = generation,
                 chatTitle = title,
                 isAgentTyping = false,
                 isSending = false,

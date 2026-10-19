@@ -547,6 +547,17 @@ object AuthManager {
         }
     }
 
+    /**
+     * Server profile a DESTRUCTIVE route must name — in the BODY for POSTs and in
+     * the `?profile=` query for everything the interceptor scopes.
+     *
+     * A backend that hosts several profiles rejects an unnamed destructive request
+     * with 400 "requires an explicit profile" instead of guessing, so an unset
+     * selection has to read as [DEFAULT_PROFILE_ID] — the same fallback
+     * [currentDataScope] and [ProfileScopeInterceptor] apply to reads.
+     */
+    fun destructiveProfileId(): String = _activeProfileId.value?.takeIf { it.isNotBlank() } ?: DEFAULT_PROFILE_ID
+
     private fun normalizedProfileId(profileId: String?): String =
         profileId?.takeIf { it.isNotBlank() } ?: DEFAULT_PROFILE_ID
 
@@ -654,6 +665,8 @@ object AuthManager {
 
     fun setToken(token: String?) {
         if (token == null) {
+            // #1605: revoke the old draft owner before auth advances or navigation flushes it.
+            currentDataScope()?.let { ComposerDraftStore.initialized()?.clearConnection(it.connectionProfileId) }
             invalidateAuthGeneration()
         }
         val selectedId =
@@ -883,6 +896,12 @@ object AuthManager {
 
     fun setModelProviderShown(shown: Boolean) {
         serverStore.update { it.copy(showModelProvider = shown) }
+    }
+
+    fun isKeepScreenAwake(): Boolean = serverStore.getLatestState().keepScreenAwake
+
+    fun setKeepScreenAwake(enabled: Boolean) {
+        serverStore.update { it.copy(keepScreenAwake = enabled) }
     }
 
     fun isKeepConnectedInBackground(): Boolean = serverStore.getLatestState().keepConnectedInBackground

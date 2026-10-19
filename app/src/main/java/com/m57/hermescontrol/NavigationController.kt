@@ -5,12 +5,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
+import com.m57.hermescontrol.data.local.DataScope
 import com.m57.hermescontrol.data.model.ProjectInfo
 
 data class PendingChatNavigation(
     val sessionId: String,
     val scrollToBottom: Boolean,
     val requestId: Long,
+    val scope: DataScope? = null,
 )
 
 data class PendingKanbanNavigation(
@@ -22,6 +24,7 @@ data class PendingNewChatNavigation(
     val requestId: Long,
     // Project to start the chat in; null keeps the default workspace.
     val project: ProjectInfo? = null,
+    val fromTile: Boolean = false,
 )
 
 /**
@@ -131,7 +134,15 @@ object NavigationController {
         queueChatNavigation(sessionId, scrollToBottom = true, returnToList = false)
     }
 
+    fun openChatSessionFromShortcut(
+        sessionId: String,
+        scope: DataScope,
+    ) {
+        queueChatNavigation(sessionId, scrollToBottom = true, returnToList = false, scope = scope)
+    }
+
     fun openNewChat(project: ProjectInfo? = null) {
+        pendingChatNavigation = null
         pendingNewChatNavigation =
             PendingNewChatNavigation(
                 requestId = ++nextNewChatNavigationRequestId,
@@ -140,12 +151,21 @@ object NavigationController {
         navigateTo(ChatScreen)
     }
 
+    /** #1603: park the action through authentication; never navigate around the login gate. */
+    fun queueNewChatFromTile() {
+        if (pendingNewChatNavigation?.fromTile == true) return
+        pendingChatNavigation = null
+        pendingNewChatNavigation = PendingNewChatNavigation(++nextNewChatNavigationRequestId, fromTile = true)
+    }
+
     private fun queueChatNavigation(
         sessionId: String,
         scrollToBottom: Boolean,
         returnToList: Boolean,
+        scope: DataScope? = null,
     ) {
         if (sessionId.isBlank()) return
+        pendingNewChatNavigation = null
         // Snapshot the origin BEFORE navigateTo resets the stack to [ChatScreen].
         val returnScreen =
             if (returnToList) {
@@ -160,6 +180,7 @@ object NavigationController {
                 sessionId = sessionId,
                 scrollToBottom = scrollToBottom,
                 requestId = ++nextChatNavigationRequestId,
+                scope = scope,
             )
         navigateTo(ChatScreen)
         // Set after navigateTo so the reset itself does not disarm the return.

@@ -38,6 +38,8 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import com.m57.hermescontrol.applock.AppLockController
+import com.m57.hermescontrol.applock.AppLockHost
 import com.m57.hermescontrol.data.local.AuthManager
 import com.m57.hermescontrol.data.remote.requiresLocalNetworkPermission
 import com.m57.hermescontrol.data.update.UpdateNoticeManager
@@ -45,6 +47,9 @@ import com.m57.hermescontrol.data.update.WhatsNewNotice
 import com.m57.hermescontrol.data.ws.HermesWsClient
 import com.m57.hermescontrol.notification.NotificationHelper
 import com.m57.hermescontrol.notification.NotificationReplyReceiver
+import com.m57.hermescontrol.share.ShareInbox
+import com.m57.hermescontrol.shortcuts.LauncherShortcuts
+import com.m57.hermescontrol.shortcuts.ShortcutRefreshEvents
 import com.m57.hermescontrol.theme.HermesControlTheme
 import com.m57.hermescontrol.ui.authlogin.AuthLoginScreen
 import com.m57.hermescontrol.ui.common.ErrorState
@@ -79,10 +84,13 @@ class MainActivity : ComponentActivity() {
             "com.m57.hermescontrol.ACTION_OPEN_KANBAN_TASK_FROM_NOTIFICATION"
         const val EXTRA_KANBAN_BOARD = "com.m57.hermescontrol.EXTRA_KANBAN_BOARD"
         const val EXTRA_KANBAN_TASK = "com.m57.hermescontrol.EXTRA_KANBAN_TASK"
+        const val ACTION_NEW_CHAT_FROM_TILE = "com.m57.hermescontrol.ACTION_NEW_CHAT_FROM_TILE"
+        private const val STATE_PENDING_TILE = "pending_new_chat_tile"
     }
 
     private var baseContextLanguageCode: String = LocaleContextWrapper.SYSTEM_LANGUAGE
     private var startupLanState by mutableStateOf(StartupLanState.Checking)
+    private lateinit var appLockController: AppLockController
 
     /**
      * Apply the user-selected display language before any view is inflated.
@@ -99,8 +107,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        appLockController = AppLockController(this)
 
+        if (savedInstanceState?.getBoolean(STATE_PENDING_TILE) == true) {
+            NavigationController.queueNewChatFromTile()
+        }
+        consumeTileIntent(intent)
         consumeNotificationIntent(intent)
+        // A recreated activity (rotation, process restore) still holds the original intent.
+        if (savedInstanceState == null) consumeShareIntent(intent)
 
         lifecycleScope.launch {
             AuthManager.initializationState.first { it == AuthManager.InitializationState.Ready }
@@ -133,42 +148,44 @@ class MainActivity : ComponentActivity() {
                 themePreset = themePreset,
                 chatFontScale = chatFontScale,
             ) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background,
-                ) {
-                    val initState by AuthManager.initializationState.collectAsStateWithLifecycle()
-                    when (initState) {
-                        AuthManager.InitializationState.Loading -> {
-                            LoadingState()
-                        }
-
-                        AuthManager.InitializationState.Ready -> {
-                            val savedLanguage = AuthManager.getAppLanguage()
-                            if (savedLanguage != baseContextLanguageCode) {
-                                // The next activity attaches with loaded preferences. Keep navigation
-                                // gated across recompositions until that recreation completes (#1171).
-                                LaunchedEffect(savedLanguage) {
-                                    recreate()
-                                }
+                AppLockHost(appLockController, onExit = { moveTaskToBack(true) }) {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background,
+                    ) {
+                        val initState by AuthManager.initializationState.collectAsStateWithLifecycle()
+                        when (initState) {
+                            AuthManager.InitializationState.Loading -> {
                                 LoadingState()
-                            } else {
-                                // Capture the selected, resolved endpoint only at startup. A
-                                // subsequent new login is handled by AuthLoginScreen.
-                                val savedToken = remember { AuthManager.getToken() }
-                                val savedGatedMode = remember { AuthManager.isGatedMode() }
-                                val savedUrl = remember { AuthManager.getBaseUrl() }
-                                SavedSessionLanGate(savedToken, savedGatedMode, savedUrl)
                             }
-                        }
 
-                        AuthManager.InitializationState.Failed -> {
-                            ErrorState(
-                                message = stringResource(R.string.auth_init_failed),
-                                onRetry = {
-                                    AuthManager.init(applicationContext)
-                                },
-                            )
+                            AuthManager.InitializationState.Ready -> {
+                                val savedLanguage = AuthManager.getAppLanguage()
+                                if (savedLanguage != baseContextLanguageCode) {
+                                    // The next activity attaches with loaded preferences. Keep navigation
+                                    // gated across recompositions until that recreation completes (#1171).
+                                    LaunchedEffect(savedLanguage) {
+                                        recreate()
+                                    }
+                                    LoadingState()
+                                } else {
+                                    // Capture the selected, resolved endpoint only at startup. A
+                                    // subsequent new login is handled by AuthLoginScreen.
+                                    val savedToken = remember { AuthManager.getToken() }
+                                    val savedGatedMode = remember { AuthManager.isGatedMode() }
+                                    val savedUrl = remember { AuthManager.getBaseUrl() }
+                                    SavedSessionLanGate(savedToken, savedGatedMode, savedUrl)
+                                }
+                            }
+
+                            AuthManager.InitializationState.Failed -> {
+                                ErrorState(
+                                    message = stringResource(R.string.auth_init_failed),
+                                    onRetry = {
+                                        AuthManager.init(applicationContext)
+                                    },
+                                )
+                            }
                         }
                     }
                 }
@@ -262,21 +279,38 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        consumeTileIntent(intent)
         consumeNotificationIntent(intent)
+        consumeShareIntent(intent)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean(STATE_PENDING_TILE, NavigationController.pendingNewChatNavigation?.fromTile == true)
+        super.onSaveInstanceState(outState)
+    }
+
+    private fun consumeTileIntent(intent: Intent?) {
+        if (intent?.action != ACTION_NEW_CHAT_FROM_TILE) return
+        intent.action = null
+        if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
+        NavigationController.queueNewChatFromTile()
     }
 
     override fun onResume() {
         super.onResume()
+        appLockController.resume()
         lifecycleScope.launch {
             AuthManager.initializationState.first { it == AuthManager.InitializationState.Ready }
             UpdateNoticeManager.checkOnLaunch()
         }
+        ShortcutRefreshEvents.refresh()
         NotificationHelper.setAppForeground(this, true)
         ExternalActivityLifecycleGuard.onHostResumed()
         NotificationHelper.stop(this)
     }
 
     override fun onPause() {
+        appLockController.pause()
         ExternalActivityLifecycleGuard.onHostPaused()
         // Prepare the FGS while still eligible to start it. A pause alone does
         // not mean background: rotation also pauses and recreates this activity.
@@ -285,6 +319,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        appLockController.stop()
         // isChangingConfigurations is reliable here, not during onPause.
         // Keep the shared socket alive across recreation, but still release an
         // idle connection when the user really leaves the app or locks the phone.
@@ -292,7 +327,25 @@ class MainActivity : ComponentActivity() {
         super.onStop()
     }
 
+    override fun onDestroy() {
+        appLockController.destroy()
+        super.onDestroy()
+    }
+
+    /**
+     * #1601: stage shared text/files for the chat composer. The payload is untrusted and is only
+     * ever parked for review; ShareInbox never sends it. Re-delivery from recents is ignored.
+     */
+    private fun consumeShareIntent(intent: Intent?) {
+        if (intent == null || intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
+        if (intent.action != Intent.ACTION_SEND && intent.action != Intent.ACTION_SEND_MULTIPLE) return
+        ShareInbox.ingest(this, intent)
+        // Parked once: a later recreate or setIntent replay must not stage it a second time.
+        intent.action = null
+    }
+
     private fun consumeNotificationIntent(intent: Intent?) {
+        LauncherShortcuts.accept(intent)
         // Issue #832: MainActivity is exported (launcher requirement) — only
         // honor intents stamped with our own notification action.
         when (intent?.action) {

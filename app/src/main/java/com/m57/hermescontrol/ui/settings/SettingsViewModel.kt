@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.m57.hermescontrol.data.config.ConnectionProfile
 import com.m57.hermescontrol.data.config.resolveBaseUrl
 import com.m57.hermescontrol.data.local.AuthManager
+import com.m57.hermescontrol.data.local.ComposerDraftStore
 import com.m57.hermescontrol.data.local.SessionListCacheStore
 import com.m57.hermescontrol.data.model.BusySendMode
 import com.m57.hermescontrol.data.remote.ApiClient
@@ -47,6 +48,7 @@ data class SettingsUiState(
     val showAssistantMessageTokens: Boolean = true,
     val showTokensPerSecond: Boolean = true,
     val showModelProvider: Boolean = false,
+    val keepScreenAwake: Boolean = false,
     val keepConnectedInBackground: Boolean = false,
     val notifySessionCompletions: Boolean = false,
     val profiles: List<ConnectionProfile> = emptyList(),
@@ -97,6 +99,7 @@ class SettingsViewModel(
         val showAssistantMessageTokens = AuthManager.isAssistantMessageTokensEnabled()
         val showTokensPerSecond = AuthManager.isTokensPerSecondEnabled()
         val showModelProvider = AuthManager.isModelProviderShown()
+        val keepScreenAwake = AuthManager.isKeepScreenAwake()
         val keepConnectedInBackground = AuthManager.isKeepConnectedInBackground()
         val notifySessionCompletions = AuthManager.isNotifySessionCompletions()
         val profiles = AuthManager.getConnectionProfiles()
@@ -126,6 +129,7 @@ class SettingsViewModel(
                 showAssistantMessageTokens = showAssistantMessageTokens,
                 showTokensPerSecond = showTokensPerSecond,
                 showModelProvider = showModelProvider,
+                keepScreenAwake = keepScreenAwake,
                 keepConnectedInBackground = keepConnectedInBackground,
                 notifySessionCompletions = notifySessionCompletions,
                 profiles = profiles,
@@ -147,6 +151,7 @@ class SettingsViewModel(
     }
 
     fun deleteProfile(profileId: String) {
+        ComposerDraftStore.initialized()?.clearConnection(profileId)
         val updatedProfiles = AuthManager.getConnectionProfiles().filter { it.id != profileId }
         AuthManager.saveConnectionProfiles(updatedProfiles)
         AuthManager.setProfileToken(profileId, null)
@@ -407,6 +412,17 @@ class SettingsViewModel(
     fun onShowModelProviderChange(enabled: Boolean) {
         _uiState.update { it.copy(showModelProvider = enabled, isSaved = false) }
         AuthManager.setModelProviderShown(enabled)
+    }
+
+    fun onKeepScreenAwakeChange(enabled: Boolean) {
+        AuthManager.setKeepScreenAwake(enabled)
+        _uiState.update { it.copy(keepScreenAwake = enabled) }
+    }
+
+    /** Reconcile changes made through the other settings entry point. */
+    fun refreshKeepScreenAwake() {
+        val enabled = AuthManager.isKeepScreenAwake()
+        _uiState.update { it.copy(keepScreenAwake = enabled) }
     }
 
     fun onKeepConnectedInBackgroundChange(enabled: Boolean) {

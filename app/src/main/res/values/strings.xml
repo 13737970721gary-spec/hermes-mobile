@@ -233,6 +233,11 @@
     <string name="notif_new_message">New message</string>
     <string name="notif_clarification_needed">Hermes needs a clarification</string>
     <string name="notif_input_needed">Hermes needs your input</string>
+    <string name="notif_action_approve_once">Approve once</string>
+    <string name="notif_action_deny">Deny</string>
+    <string name="notif_approval_sent_once">Approve once sent to Hermes</string>
+    <string name="notif_approval_sent_deny">Deny sent to Hermes</string>
+    <string name="notif_approval_open_app">Could not answer from here. Open Hermes to respond.</string>
     <string name="notif_reply_placeholder">Type your reply\u2026</string>
     <string name="kanban_alert_title">Hermes Kanban</string>
     <string name="kanban_alert_completed">completed</string>
@@ -959,6 +964,12 @@
     <string name="sessions_prune_desc">Delete sessions older than the specified number of days.</string>
     <string name="sessions_prune_days_label">Days threshold</string>
     <string name="sessions_prune_confirm">Prune</string>
+    <string name="sessions_prune_include_archived">Include archived sessions</string>
+    <string name="sessions_prune_include_archived_help">Archived chats are hidden from the list but still stored.</string>
+    <string name="sessions_prune_preview">%1$d session(s) will be deleted</string>
+    <string name="sessions_prune_preview_none">No sessions match these filters</string>
+    <string name="sessions_prune_preview_loading">Counting matches…</string>
+    <string name="sessions_prune_progress">Deleting %1$d of %2$d…</string>
     <string name="sessions_pruning">Pruning old sessions…</string>
     <string name="sessions_empty_cleanup_desc">Empty</string>
     <string name="sessions_empty_cleanup_title">Delete empty sessions?</string>
@@ -1679,6 +1690,14 @@
     <string name="subagent_task_plan_inspection">Task &amp; Plan Inspection</string>
     <string name="subagent_action_steer">Steer</string>
     <string name="subagent_action_stop">Stop</string>
+    <string name="subagent_control_steering">Sending guidance…</string>
+    <string name="subagent_control_stopping">Requesting stop…</string>
+    <string name="subagent_control_queued">Guidance queued. Delivery is not confirmed.</string>
+    <string name="subagent_control_rejected">Guidance rejected. The child may no longer accept messages.</string>
+    <string name="subagent_control_stop_requested">Stop requested. Waiting for the child to finish.</string>
+    <string name="subagent_control_not_found">The child has already finished or is unavailable.</string>
+    <string name="subagent_control_unsupported">Child controls are not supported by this gateway.</string>
+    <string name="subagent_control_error">Could not confirm the action. Check the connection and try again.</string>
     <string name="subagent_steer_placeholder">Course-correction guidance for subagent…</string>
     <string name="subagent_status_running">Running</string>
     <string name="subagent_status_completed">Completed</string>
@@ -1964,4 +1983,17 @@
     <string name="trust_user_cas_description">Trust system CAs and any CA installed in Android’s user certificate store for all connections. Any user-installed CA can authenticate servers for this app. Certificate and hostname checks remain enabled. Off by default.</string>
     <string name="trust_user_cas_save_failed">Could not save the trust setting. Please try again.</string>
     <string name="trust_user_cas_restart_required">Restart the app process to apply this change.</string>
+    <string name="shortcut_unavailable">This conversation shortcut is no longer available. Open History to choose a chat.</string>
+    <string name="chat_draft_storage_error">Could not access saved drafts. Keep a copy of your unfinished message.</string>
+    <string name="settings_keep_screen_awake_title">Keep screen awake</string>
+    <string name="settings_keep_screen_awake_desc">Prevent screen timeout while chat is visible. Uses more battery.</string>
+    <string name="sessions_undo_action">Undo</string>
+    <string name="sessions_feedback_pinned">Session pinned</string>
+    <string name="sessions_feedback_unpinned">Session unpinned</string>
+    <string name="sessions_feedback_archived">Session archived</string>
+    <string name="sessions_feedback_unarchived">Session unarchived</string>
+    <string name="sessions_undo_done">Change undone</string>
+    <string name="sessions_undo_failed">Undo failed. Refresh history to check the current state.</string>
+    <string name="sessions_undo_changed">Session changed. Undo is no longer available.</string>
+    <string name="chat_attachment_send_original">Send original</string>
 </resources>
