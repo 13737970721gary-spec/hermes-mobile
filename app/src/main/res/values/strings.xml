@@ -2004,4 +2004,22 @@
     <string name="sessions_undo_failed">Undo failed. Refresh history to check the current state.</string>
     <string name="sessions_undo_changed">Session changed. Undo is no longer available.</string>
     <string name="chat_attachment_send_original">Send original</string>
+    <plurals name="chat_tool_group_calls">
+        <item quantity="one">%1$d tool call</item>
+        <item quantity="other">%1$d tool calls</item>
+    </plurals>
+    <plurals name="chat_tool_group_running">
+        <item quantity="one">%1$d running</item>
+        <item quantity="other">%1$d running</item>
+    </plurals>
+    <plurals name="chat_tool_group_failed">
+        <item quantity="one">%1$d failed</item>
+        <item quantity="other">%1$d failed</item>
+    </plurals>
+    <plurals name="chat_tool_group_completed">
+        <item quantity="one">%1$d completed</item>
+        <item quantity="other">%1$d completed</item>
+    </plurals>
+    <string name="chat_tool_group_expand">Expand</string>
+    <string name="chat_tool_group_collapse">Collapse</string>
 </resources>
