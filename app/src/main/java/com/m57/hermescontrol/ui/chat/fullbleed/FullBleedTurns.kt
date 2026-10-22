@@ -305,6 +305,24 @@ internal fun expandedToolGroups(
         .filter { group -> group.entries.any { it.message.id in expandedMemberIds } }
         .mapTo(mutableSetOf()) { it.id }
 
+internal fun toolMemberIds(turns: List<ChatTurn>): Set<String> =
+    turns
+        .filterIsInstance<ChatTurn.Agent>()
+        .flatMap { agent ->
+            agent.entries.flatMap { entry ->
+                when (entry) {
+                    is AgentEntry.ToolRow -> listOf(entry.message.id)
+                    is AgentEntry.ToolGroup -> entry.entries.map { it.message.id }
+                    else -> emptyList()
+                }
+            }
+        }.toSet()
+
+internal fun activeToolMemberIds(
+    turns: List<ChatTurn>,
+    expandedMemberIds: Set<String>,
+): Set<String> = expandedMemberIds intersect toolMemberIds(turns)
+
 internal fun toolGroupForMessage(
     turns: List<ChatTurn>,
     messageId: String,

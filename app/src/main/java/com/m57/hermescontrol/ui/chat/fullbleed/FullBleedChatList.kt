@@ -161,19 +161,19 @@ fun FullBleedChatList(
                 appendStreamingTurn(settledTurns, settledIds, streamingState.streamingMessage)
             }
         val expandedToolMembers = remember(listState, pagingSessionId) { mutableStateOf(emptySet<String>()) }
-        LaunchedEffect(
-            pagingSessionId,
-            listState,
-            searchState.isActive,
-            searchState.query,
-            searchState.matchedIds,
-            searchState.currentIndex,
-        ) {
+        val currentToolMemberIds = toolMemberIds(turns)
+        val activeExpandedToolMembers = expandedToolMembers.value intersect currentToolMemberIds
+        val searchExpandedToolMembers =
             if (searchState.isActive) {
-                expandedToolMembers.value = expandedToolMembers.value + searchState.matchedIds
+                setOfNotNull(searchState.currentMatchId)
+            } else {
+                emptySet()
             }
-        }
-        val expandedToolGroupIds = expandedToolGroups(turns, expandedToolMembers.value)
+        val expandedToolGroupIds =
+            expandedToolGroups(
+                turns,
+                activeExpandedToolMembers + searchExpandedToolMembers,
+            )
         val previousGroupMembers = remember(listState, pagingSessionId) { mutableStateOf(emptyMap<String, String>()) }
         val agentStatus = deriveAgentStatus(isAgentTyping, streamingState, renderedMessages)
         // A single ordered definition supplies both emitted tail rows and anchor keys.
@@ -544,9 +544,9 @@ fun FullBleedChatList(
                                                                 val ids = entry.entries.map { it.message.id }.toSet()
                                                                 expandedToolMembers.value =
                                                                     if (expanded) {
-                                                                        expandedToolMembers.value - ids
+                                                                        activeExpandedToolMembers - ids
                                                                     } else {
-                                                                        expandedToolMembers.value + ids
+                                                                        activeExpandedToolMembers + ids
                                                                     }
                                                             },
                                                         )

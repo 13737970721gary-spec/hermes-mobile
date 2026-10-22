@@ -2,6 +2,7 @@ package com.m57.hermescontrol.ui.chat
 
 import com.m57.hermescontrol.ui.chat.fullbleed.AgentEntry
 import com.m57.hermescontrol.ui.chat.fullbleed.ChatTurn
+import com.m57.hermescontrol.ui.chat.fullbleed.activeToolMemberIds
 import com.m57.hermescontrol.ui.chat.fullbleed.expandedToolGroups
 import com.m57.hermescontrol.ui.chat.fullbleed.fullBleedItemKeys
 import com.m57.hermescontrol.ui.chat.fullbleed.groupIntoTurns
@@ -86,6 +87,19 @@ class FullBleedItemKeysTest {
         val second = ChatMessage("t2", MessageRole.TOOL, "two")
         val turns = groupIntoTurns(listOf(ChatMessage("old", MessageRole.TOOL, "old"), first, second))
         assertEquals(setOf("old"), expandedToolGroups(turns, setOf("t1", "t2")))
+    }
+
+    @Test
+    fun staleExpandedMembersAreIgnoredWhenTranscriptChanges() {
+        val current =
+            groupIntoTurns(
+                listOf(
+                    ChatMessage("current-1", MessageRole.TOOL, "one"),
+                    ChatMessage("current-2", MessageRole.TOOL, "two"),
+                ),
+            )
+        assertEquals(setOf("current-1"), activeToolMemberIds(current, setOf("old", "current-1")))
+        assertEquals(emptySet<String>(), activeToolMemberIds(current, setOf("old")))
     }
 
     @Test
