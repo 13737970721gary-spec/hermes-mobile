@@ -161,7 +161,7 @@ fun FullBleedChatList(
                 appendStreamingTurn(settledTurns, settledIds, streamingState.streamingMessage)
             }
         val expandedToolMembers = remember(listState, pagingSessionId) { mutableStateOf(emptySet<String>()) }
-        val currentToolMemberIds = toolMemberIds(turns)
+        val currentToolMemberIds = remember(turns) { toolMemberIds(turns) }
         val activeExpandedToolMembers = expandedToolMembers.value intersect currentToolMemberIds
         val searchExpandedToolMembers =
             if (searchState.isActive) {
@@ -170,10 +170,12 @@ fun FullBleedChatList(
                 emptySet()
             }
         val expandedToolGroupIds =
-            expandedToolGroups(
-                turns,
-                activeExpandedToolMembers + searchExpandedToolMembers,
-            )
+            remember(turns, activeExpandedToolMembers, searchExpandedToolMembers) {
+                expandedToolGroups(
+                    turns,
+                    activeExpandedToolMembers + searchExpandedToolMembers,
+                )
+            }
         val previousGroupMembers = remember(listState, pagingSessionId) { mutableStateOf(emptyMap<String, String>()) }
         val agentStatus = deriveAgentStatus(isAgentTyping, streamingState, renderedMessages)
         // A single ordered definition supplies both emitted tail rows and anchor keys.
